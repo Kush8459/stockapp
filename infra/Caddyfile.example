@@ -1,0 +1,43 @@
+# Production Caddyfile — copy to /etc/caddy/Caddyfile, edit the two domains,
+# then `sudo systemctl reload caddy`. Caddy auto-provisions Let's Encrypt
+# certs on first run.
+#
+# Layout assumes docker-compose.prod.yml is up on the same box, with the
+# frontend container on :8081 and the API container on :8080.
+
+{
+	# Set your contact e-mail so Let's Encrypt expiry alerts reach you.
+	email admin@example.com
+}
+
+# --- Frontend ---------------------------------------------------------------
+your-domain.example {
+	encode zstd gzip
+
+	# Defensive headers. The API sets its own (see internal/httpx.SecurityHeaders);
+	# this block hardens the static frontend the same way.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+		# Caddy adds Server: Caddy by default — strip it.
+		-Server
+	}
+
+	reverse_proxy localhost:8081
+}
+
+# --- API + WebSocket --------------------------------------------------------
+api.your-domain.example {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Caddy auto-detects the WebSocket upgrade on /ws and proxies it correctly.
+	reverse_proxy localhost:8080
+}

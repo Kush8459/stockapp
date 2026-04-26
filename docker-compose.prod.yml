@@ -1,0 +1,115 @@
+# Production-flavoured compose. Runs the full stack in containers behind
+# one network. For dev, keep using docker-compose.yml (just Postgres + Redis).
+#
+# Usage:
+#   cp .env.example .env && fill in JWT_SECRET, API keys, etc.
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml --profile tools run --rm migrate up
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockapp}
+      POSTGRES_DB: ${POSTGRES_DB:-stockapp}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockapp} -d ${POSTGRES_DB:-stockapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    entrypoint:
+      [
+        "migrate", "-path", "/migrations",
+        "-database",
+        "postgres://${POSTGRES_USER:-stockapp}:${POSTGRES_PASSWORD:-stockapp}@postgres:5432/${POSTGRES_DB:-stockapp}?sslmode=disable",
+      ]
+    command: ["up"]
+
+  api:
+    build:
+      context: ./backend
+      args:
+        TARGET: server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      APP_HTTP_ADDR: ":8080"
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:8081}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-stockapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockapp}
+      POSTGRES_DB: ${POSTGRES_DB:-stockapp}
+      POSTGRES_SSLMODE: disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-720h}
+      PRICE_SOURCE: ${PRICE_SOURCE:-mock}
+      NEWSAPI_KEY: ${NEWSAPI_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-2.0-flash}
+    ports:
+      - "8080:8080"
+
+  worker:
+    build:
+      context: ./backend
+      args:
+        TARGET: price-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      REDIS_ADDR: redis:6379
+      PRICE_SOURCE: ${PRICE_SOURCE:-mock}
+      # JWT_SECRET isn't used by the worker but the shared config validates it.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8080}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8081:80"
+
+volumes:
+  postgres_data:
+  redis_data:

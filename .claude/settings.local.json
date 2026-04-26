@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(go mod *)",
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(cp .env.example .env)",
+      "Bash(python -c \"import secrets; print\\('JWT_SECRET='+secrets.token_hex\\(32\\)\\)\")",
+      "Read(//tmp/**)",
+      "Bash(docker compose *)",
+      "Bash(docker info *)",
+      "Bash(tasklist)"
+    ]
+  }
+}

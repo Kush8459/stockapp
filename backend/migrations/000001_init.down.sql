@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS price_alerts   CASCADE;
+DROP TABLE IF EXISTS sip_plans      CASCADE;
+DROP TABLE IF EXISTS audit_log      CASCADE;
+DROP TABLE IF EXISTS ledger_entries CASCADE;
+DROP TABLE IF EXISTS transactions   CASCADE;
+DROP TABLE IF EXISTS holdings       CASCADE;
+DROP TABLE IF EXISTS portfolios     CASCADE;
+DROP TABLE IF EXISTS users          CASCADE;
+DROP FUNCTION IF EXISTS audit_log_block_mutation();
+DROP FUNCTION IF EXISTS set_updated_at();
+DROP EXTENSION IF EXISTS "pgcrypto";

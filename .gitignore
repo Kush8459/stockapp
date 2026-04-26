@@ -1,0 +1,33 @@
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Go
+backend/bin/
+backend/tmp/
+*.exe
+*.test
+*.out
+vendor/
+coverage.out
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/stats.html
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# Docker volumes
+docker/data/
+
+# Misc
+_docx_extract/
+_roadmap.txt

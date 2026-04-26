@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: stockapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockapp}
+      POSTGRES_DB: ${POSTGRES_DB:-stockapp}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockapp} -d ${POSTGRES_DB:-stockapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: stockapp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    entrypoint:
+      [
+        "migrate",
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://${POSTGRES_USER:-stockapp}:${POSTGRES_PASSWORD:-stockapp}@postgres:5432/${POSTGRES_DB:-stockapp}?sslmode=disable",
+      ]
+    command: ["up"]
+
+volumes:
+  postgres_data:
+  redis_data:
+# Kafka is intentionally deferred. The platform runs end-to-end on Postgres +
+# Redis + an in-process event bus. Add a kafka/zookeeper service (or Redpanda)
+# when the event bus grows beyond a single node.
