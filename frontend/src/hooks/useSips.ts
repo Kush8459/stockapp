@@ -8,7 +8,7 @@ export interface SipPlan {
   ticker: string;
   assetType: "stock" | "mf";
   amount: string;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
   nextRunAt: string;
   status: "active" | "paused" | "cancelled";
   createdAt: string;
@@ -34,7 +34,7 @@ export function useCreateSip() {
       ticker: string;
       assetType: "stock" | "mf";
       amount: string;
-      frequency: "daily" | "weekly" | "monthly";
+      frequency: "daily" | "weekly" | "monthly" | "yearly";
       firstRunAt?: string;
     }) => {
       const { data } = await api.post<SipPlan>("/sips", input);
@@ -49,6 +49,22 @@ export function useUpdateSipStatus() {
   return useMutation({
     mutationFn: async (input: { id: string; status: "active" | "paused" | "cancelled" }) => {
       await api.patch(`/sips/${input.id}`, { status: input.status });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sips"] }),
+  });
+}
+
+export function useUpdateSip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      amount?: string;
+      frequency?: "monthly" | "yearly";
+      nextRunAt?: string; // RFC3339
+    }) => {
+      const { id, ...body } = input;
+      await api.patch(`/sips/${id}`, body);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sips"] }),
   });

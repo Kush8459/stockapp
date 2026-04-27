@@ -7,15 +7,20 @@ exact environment variables the server needs in production.
 
 | Option | Best for | Cost (roughly) | Setup time |
 |---|---|---|---|
-| **Railway** | Demo / CV — easiest | Free credits, ~₹400/mo after | 15 min |
+| **Oracle Cloud Always Free** | CV / portfolio — recommended | **₹0 forever** (4 vCPU + 24 GB ARM) | 60 min — see [`oracle-deploy.md`](oracle-deploy.md) |
+| **Railway** | Easiest paid path | Free credits, ~₹400/mo after | 15 min |
 | **Fly.io** | Low-traffic production | Free tier covers it, ~₹0 at demo scale | 30 min |
-| **Hetzner Cloud / DO / Vultr VPS** | Full control, best cost at scale | ~₹350–500/mo | 45 min |
+| **Hetzner Cloud / DO / Vultr VPS** | Full control, paid scale | ~₹350–500/mo | 45 min |
 | **AWS / GCP** | If a team already lives there | ~₹2,000+/mo | A day |
 
-For a CV / portfolio project I'd use **Railway** or a **Hetzner VPS**. The
-VPS is genuinely cheaper and makes for better interview talking points
-("I run the whole stack on one `docker compose up`"). Railway is the
-button-click option when you don't want to own a box.
+For a CV / portfolio project the recommended path is **Oracle Cloud Free**
+(genuinely free forever, runs the whole `docker-compose.prod.yml` on one
+ARM box, zero cold starts). The full guide lives in
+[`oracle-deploy.md`](oracle-deploy.md) — that's the doc to follow if you're
+deploying right now.
+
+Hetzner/DO/Vultr give you the same architecture but cost ~₹350/mo. Railway
+is the button-click option when you don't want to own a box.
 
 Required across all options:
 - A **Postgres 15+** instance

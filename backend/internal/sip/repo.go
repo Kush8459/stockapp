@@ -78,6 +78,48 @@ func (r *Repo) SetStatus(ctx context.Context, userID, id uuid.UUID, status Statu
 	return nil
 }
 
+// UpdateInput carries all the fields a user can edit on an existing SIP.
+// Any nil pointer means "leave unchanged" — letting one PATCH touch any
+// subset of fields without forcing the client to send the others.
+type UpdateInput struct {
+	Amount    *decimal.Decimal
+	Frequency *Frequency
+	NextRunAt *time.Time
+}
+
+// Update applies a partial edit to a SIP plan. Returns ErrNotFound if
+// the plan doesn't exist or doesn't belong to the user. Uses COALESCE
+// so the SQL stays single-statement regardless of which fields are set.
+func (r *Repo) Update(ctx context.Context, userID, id uuid.UUID, in UpdateInput) error {
+	const q = `
+		UPDATE sip_plans
+		SET amount      = COALESCE($1, amount),
+		    frequency   = COALESCE($2, frequency),
+		    next_run_at = COALESCE($3, next_run_at),
+		    updated_at  = NOW()
+		WHERE id = $4 AND user_id = $5`
+	var amount any
+	if in.Amount != nil {
+		amount = *in.Amount
+	}
+	var freq any
+	if in.Frequency != nil {
+		freq = string(*in.Frequency)
+	}
+	var nextRun any
+	if in.NextRunAt != nil {
+		nextRun = *in.NextRunAt
+	}
+	cmd, err := r.db.Exec(ctx, q, amount, freq, nextRun, id, userID)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ClaimDue returns up to `limit` SIPs that are due to run now. It uses
 // SELECT ... FOR UPDATE SKIP LOCKED so multiple scheduler instances (or
 // restarts mid-run) never double-execute the same plan.

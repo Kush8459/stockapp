@@ -22,6 +22,7 @@ import (
 	"github.com/stockapp/backend/internal/insights"
 	"github.com/stockapp/backend/internal/logger"
 	"github.com/stockapp/backend/internal/market"
+	"github.com/stockapp/backend/internal/mf"
 	"github.com/stockapp/backend/internal/news"
 	"github.com/stockapp/backend/internal/pnl"
 	"github.com/stockapp/backend/internal/portfolio"
@@ -30,6 +31,7 @@ import (
 	"github.com/stockapp/backend/internal/redisx"
 	"github.com/stockapp/backend/internal/sectors"
 	"github.com/stockapp/backend/internal/sip"
+	"github.com/stockapp/backend/internal/stocks"
 	"github.com/stockapp/backend/internal/tax"
 	"github.com/stockapp/backend/internal/transaction"
 	"github.com/stockapp/backend/internal/user"
@@ -83,6 +85,16 @@ func run() error {
 	go func() {
 		if err := price.LoadUpstoxInstruments(ctx); err != nil {
 			log.Warn().Err(err).Msg("upstox instruments CSV failed; search will fall back to Yahoo")
+		}
+	}()
+
+	// Mutual-fund catalog: fetch the full mfapi directory, parse + bucket
+	// by category, refresh daily. Failure here is non-fatal — /mf/catalog
+	// will simply return an empty list until a successful refresh.
+	mfSvc := mf.NewService(rdb)
+	go func() {
+		if err := mfSvc.Start(ctx); err != nil {
+			log.Warn().Err(err).Msg("mf catalog failed to start; /mf/catalog will be empty")
 		}
 	}()
 	// Background-load NSE index constituents so /market/movers?index=…
@@ -145,6 +157,8 @@ func run() error {
 		market.NewHandler(priceCache).Routes(r)
 		sectors.NewHandler(priceCache).Routes(r)
 		fundamentals.NewHandler(fundamentals.NewService(rdb)).Routes(r)
+		mf.NewHandler(mfSvc, priceCache, rdb).Routes(r)
+		stocks.NewHandler(priceCache, rdb).Routes(r)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware(signer))

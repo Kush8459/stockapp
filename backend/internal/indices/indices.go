@@ -29,19 +29,40 @@ import (
 // Index identifies one NSE index by user-facing label + the slug used in
 // query strings + the source URL.
 type Index struct {
-	Slug  string `json:"slug"`
-	Label string `json:"label"`
-	URL   string `json:"-"`
+	Slug     string `json:"slug"`
+	Label    string `json:"label"`
+	Category string `json:"category"` // "broad" | "sector"
+	URL      string `json:"-"`
 }
 
 // Catalog is the set of indices we try to load. Order is what the UI
-// dropdown shows.
+// dropdown shows. Sectoral indices live alongside broad ones — both come
+// from the same NSE archives endpoint, the same CSV format, the same
+// load path. They're distinguished by the `Category` field so the UI
+// can render two groups (Indices / Sectors) without a separate hardcoded
+// per-sector ticker list.
 var Catalog = []Index{
-	{Slug: "nifty50", Label: "NIFTY 50", URL: "https://archives.nseindia.com/content/indices/ind_nifty50list.csv"},
-	{Slug: "niftynext50", Label: "NIFTY Next 50", URL: "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv"},
-	{Slug: "nifty100", Label: "NIFTY 100", URL: "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"},
-	{Slug: "niftymidcap100", Label: "NIFTY Midcap 100", URL: "https://archives.nseindia.com/content/indices/ind_niftymidcap100list.csv"},
-	{Slug: "nifty500", Label: "NIFTY 500", URL: "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"},
+	// ── Broad ──
+	{Slug: "nifty50", Category: "broad", Label: "NIFTY 50", URL: "https://archives.nseindia.com/content/indices/ind_nifty50list.csv"},
+	{Slug: "niftynext50", Category: "broad", Label: "NIFTY Next 50", URL: "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv"},
+	{Slug: "nifty100", Category: "broad", Label: "NIFTY 100", URL: "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"},
+	{Slug: "niftymidcap100", Category: "broad", Label: "NIFTY Midcap 100", URL: "https://archives.nseindia.com/content/indices/ind_niftymidcap100list.csv"},
+	{Slug: "nifty500", Category: "broad", Label: "NIFTY 500", URL: "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"},
+
+	// ── Sectoral — same NSE archives format, just per-sector CSVs ──
+	{Slug: "niftybank", Category: "sector", Label: "Banking", URL: "https://archives.nseindia.com/content/indices/ind_niftybanklist.csv"},
+	{Slug: "niftyit", Category: "sector", Label: "IT", URL: "https://archives.nseindia.com/content/indices/ind_niftyitlist.csv"},
+	{Slug: "niftyauto", Category: "sector", Label: "Auto", URL: "https://archives.nseindia.com/content/indices/ind_niftyautolist.csv"},
+	{Slug: "niftypharma", Category: "sector", Label: "Pharma", URL: "https://archives.nseindia.com/content/indices/ind_niftypharmalist.csv"},
+	{Slug: "niftyfmcg", Category: "sector", Label: "FMCG", URL: "https://archives.nseindia.com/content/indices/ind_niftyfmcglist.csv"},
+	{Slug: "niftymetal", Category: "sector", Label: "Metal", URL: "https://archives.nseindia.com/content/indices/ind_niftymetallist.csv"},
+	{Slug: "niftyrealty", Category: "sector", Label: "Realty", URL: "https://archives.nseindia.com/content/indices/ind_niftyrealtylist.csv"},
+	{Slug: "niftyenergy", Category: "sector", Label: "Energy", URL: "https://archives.nseindia.com/content/indices/ind_niftyenergylist.csv"},
+	{Slug: "niftymedia", Category: "sector", Label: "Media", URL: "https://archives.nseindia.com/content/indices/ind_niftymedialist.csv"},
+	{Slug: "niftypsubank", Category: "sector", Label: "PSU Bank", URL: "https://archives.nseindia.com/content/indices/ind_niftypsubanklist.csv"},
+	{Slug: "niftyconsumerdurables", Category: "sector", Label: "Consumer Durables", URL: "https://archives.nseindia.com/content/indices/ind_niftyconsumerdurableslist.csv"},
+	{Slug: "niftyhealthcare", Category: "sector", Label: "Healthcare", URL: "https://archives.nseindia.com/content/indices/ind_niftyhealthcarelist.csv"},
+	{Slug: "niftyoilgas", Category: "sector", Label: "Oil & Gas", URL: "https://archives.nseindia.com/content/indices/ind_niftyoilgaslist.csv"},
 }
 
 // FallbackNIFTY50 is the published list as of early 2026. Used only when
@@ -64,6 +85,11 @@ var (
 	bySet    = map[string]map[string]struct{}{} // for O(1) IsInIndex
 	loadedAt time.Time
 )
+
+// errNotFound flags a 404 from NSE archives — the index URL is stale.
+// Distinguished from generic fetch errors so the loader can demote the
+// log severity (404 is expected, networking failures aren't).
+var errNotFound = errors.New("nse: 404 Not Found")
 
 // Tickers returns the constituent list for an index slug. nil if not loaded.
 func Tickers(slug string) []string {
@@ -120,7 +146,15 @@ func LoadAll(ctx context.Context) {
 	for _, idx := range Catalog {
 		tickers, err := fetchIndexCSV(ctx, idx.URL)
 		if err != nil {
-			log.Warn().Str("slug", idx.Slug).Err(err).Msg("nse: index csv fetch failed")
+			// 404s mean NSE renamed/retired the archive. The categories
+			// endpoint already filters those out so users never see a
+			// dead chip — log at DEBUG to keep the steady-state log
+			// quiet; promote to WARN for genuinely unexpected failures.
+			ev := log.Warn()
+			if errors.Is(err, errNotFound) {
+				ev = log.Debug()
+			}
+			ev.Str("slug", idx.Slug).Err(err).Msg("nse: index csv fetch failed")
 			continue
 		}
 		next[idx.Slug] = tickers
@@ -163,6 +197,9 @@ func fetchIndexCSV(ctx context.Context, url string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("nse: %s", resp.Status)
 	}

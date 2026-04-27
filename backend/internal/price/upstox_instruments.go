@@ -41,7 +41,8 @@ type Instrument struct {
 
 var (
 	instrumentsMu sync.RWMutex
-	instruments   []Instrument // every NSE EQ row from the latest CSV
+	instruments   []Instrument            // every NSE EQ row from the latest CSV
+	bySymbol      map[string]Instrument   // O(1) symbol → instrument
 )
 
 // SearchInstruments returns up to `limit` results matching `q`, in priority
@@ -49,17 +50,34 @@ var (
 // insensitive. Returns nil if the CSV hasn't loaded yet or no rows match —
 // callers should fall back to Yahoo in that case.
 func SearchInstruments(q string, limit int) []Instrument {
+	out, _ := SearchInstrumentsPaged(q, limit, 0)
+	return out
+}
+
+// SearchInstrumentsPaged is the paginating version of SearchInstruments.
+// `offset` skips that many matched results before collecting; useful for
+// the stocks browse page's infinite scroll. Returns the collected slice
+// and the total number of matches across the whole instrument index.
+//
+// The internal capping behaviour of SearchInstruments (`limit*4` work
+// budget) is dropped here because pagination requires us to know the
+// true total — we walk the full instrument list. ~9000 NSE EQ rows is
+// fast enough that this is fine for an interactive endpoint.
+func SearchInstrumentsPaged(q string, limit, offset int) ([]Instrument, int) {
 	q = strings.ToUpper(strings.TrimSpace(q))
 	if q == "" {
-		return nil
+		return nil, 0
 	}
-	if limit <= 0 || limit > 50 {
-		limit = 10
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	instrumentsMu.RLock()
 	defer instrumentsMu.RUnlock()
 	if len(instruments) == 0 {
-		return nil
+		return nil, 0
 	}
 
 	var exact, prefix, fuzzy []Instrument
@@ -75,18 +93,22 @@ func SearchInstruments(q string, limit int) []Instrument {
 		case strings.Contains(nameU, q):
 			fuzzy = append(fuzzy, ins)
 		}
-		// Cap work — we won't return more than 3*limit before slicing,
-		// and most queries match tens of rows max.
-		if len(exact)+len(prefix)+len(fuzzy) >= limit*4 {
-			break
-		}
 	}
-	out := append(exact, prefix...)
-	out = append(out, fuzzy...)
-	if len(out) > limit {
-		out = out[:limit]
+	full := append(exact, prefix...)
+	full = append(full, fuzzy...)
+	total := len(full)
+	if offset >= total {
+		return nil, total
 	}
-	return out
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	// Defensive copy — we hold a read-locked slice into our internal
+	// state and don't want callers to retain a reference to it.
+	out := make([]Instrument, end-offset)
+	copy(out, full[offset:end])
+	return out, total
 }
 
 // LookupUpstoxKey returns the v2 instrument key for a ticker. Tries the
@@ -108,6 +130,21 @@ func DynamicInstrumentsLoaded() (bool, int, time.Time) {
 	dynamicMu.RLock()
 	defer dynamicMu.RUnlock()
 	return !dynamicLoadedAt.IsZero(), len(dynamicInstrumentKeys), dynamicLoadedAt
+}
+
+// LookupInstrument returns the full Instrument record for `ticker` (NSE
+// tradingsymbol, e.g. "RELIANCE"). Returns (zero, false) before the
+// Upstox CSV has loaded or for unknown symbols — the UI then shows the
+// bare ticker without a name, which is the right fallback for a
+// transient warm-up state (better than displaying stale curated data).
+func LookupInstrument(ticker string) (Instrument, bool) {
+	instrumentsMu.RLock()
+	defer instrumentsMu.RUnlock()
+	if bySymbol == nil {
+		return Instrument{}, false
+	}
+	ins, ok := bySymbol[ticker]
+	return ins, ok
 }
 
 // LoadUpstoxInstruments downloads + parses the Upstox CSV and populates the
@@ -224,8 +261,14 @@ func LoadUpstoxInstruments(ctx context.Context) error {
 	dynamicLoadedAt = time.Now()
 	dynamicMu.Unlock()
 
+	nextBySymbol := make(map[string]Instrument, len(nextList))
+	for _, ins := range nextList {
+		nextBySymbol[ins.Symbol] = ins
+	}
+
 	instrumentsMu.Lock()
 	instruments = nextList
+	bySymbol = nextBySymbol
 	instrumentsMu.Unlock()
 
 	log.Info().

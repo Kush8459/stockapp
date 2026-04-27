@@ -134,11 +134,14 @@ Displayed:
 
 | What | Where |
 |---|---|
-| Create / pause / resume / cancel | `internal/sip.Handler` · `pages/Sips.tsx` |
-| Enhanced form: ticker combobox (from `/universe`), quick-pick amounts, units-per-run preview, next-3-runs list, 15-year projection chart with return slider | `components/SipForm.tsx` |
+| Create / pause / resume / cancel / **edit** (amount, frequency, next-run date) | `internal/sip.Handler` · `pages/Sips.tsx` · `components/SipEditDialog.tsx` |
+| **Monthly + yearly** frequencies only (matches Indian retail-app convention); legacy daily/weekly plans still run via the scheduler but can't be created or chosen for new edits | `migrations/000006_sip_yearly.up.sql` · `internal/sip.Frequency` |
+| **MF-only ticker picker** — searchable autocomplete backed by `/mf/catalog` (no stocks); posts `assetType: "mf"` | `components/MfSearchPicker.tsx` · `components/SipForm.tsx` |
+| **Start-date picker** — native `<input type="date">` with `min=today`; the create body sends `firstRunAt` as RFC3339 | `lib/sip.startDateToFirstRunAt` |
 | Cron goroutine in the API process, polls every 60 s | `internal/sip.Scheduler` |
 | `SELECT FOR UPDATE SKIP LOCKED` claim — safe under parallel schedulers | `internal/sip.Repo.ClaimDue` |
 | SIP executions tagged `source="sip"` + `source_id=plan.id` on the transaction | `sip.Scheduler.execute` |
+| Partial PATCH `/sips/{id}` body — any subset of `{status, amount, frequency, nextRunAt}` accepted, COALESCE'd into the row | `internal/sip.Repo.Update` |
 | Live countdown chip on each row, turns green when running | `components/Countdown.tsx` |
 | Expandable rows with per-SIP projection and gain breakdown | `pages/Sips.tsx` |
 | Status filter tabs with per-tab counts | same |
@@ -237,7 +240,7 @@ A right sidebar (always visible on desktop) showing live quotes for the
 | `/sectors/{slug}` returns the index plus every component's live quote | `Handler.detail` |
 | `pages/SectorDetail.tsx` — sortable component table with live flashes | route `/sector/:slug` |
 | Sidebar (`SectorSidebar`) renders 11 sectors, each clickable into the detail page | `components/SectorSidebar.tsx` |
-| Components mapped per sector in `internal/sectors/data.go` (currently hardcoded) | same |
+| Components mapped per sector in `internal/sectors/data.go` (kept for back-compat with the right sidebar; the newer `/stocks/catalog` resolves sector constituents from the loaded NSE archive CSVs instead) | same |
 
 ---
 
@@ -257,11 +260,13 @@ A right sidebar (always visible on desktop) showing live quotes for the
 
 | What | Where |
 |---|---|
-| At-startup load from NSE archive CSVs: NIFTY 50, Next 50, 100, Midcap 100, 500 | `internal/indices.LoadAll` |
+| At-startup load from NSE archive CSVs: 5 broad indices (NIFTY 50, Next 50, 100, Midcap 100, 500) **plus 14 sectoral indices** (Banking, IT, Auto, Pharma, FMCG, Metal, Realty, Energy, Media, PSU Bank, Consumer Durables, Healthcare, Oil & Gas) | `internal/indices.LoadAll` |
+| `Index.Category` field separates `"broad"` from `"sector"` so the same loader serves both groups; the stocks-browse endpoint reads broad and sectoral from this single source | `indices/indices.go` |
+| 404s from NSE (renamed/retired archives) log at DEBUG via a sentinel `errNotFound`; other errors stay at WARN | same |
 | Hardcoded `FallbackNIFTY50` keeps the universe usable when the archive fetch fails | `indices/indices.go` |
 | `IsInIndex(ticker, slug)` — used by the movers filter | same |
 | `AllTickers()` — every NSE-listed equity across every loaded index, deduplicated; the worker uses this to seed the Upstox WS subscribe set | same |
-| `Catalog` + `Index` types power the `/market/indices` dropdown payload | same |
+| `Catalog` + `Index` types power the `/market/indices` and `/stocks/categories` payloads | same |
 
 ---
 
@@ -278,6 +283,71 @@ A right sidebar (always visible on desktop) showing live quotes for the
 | `Cmd/Ctrl+K` focuses the input from anywhere | same |
 | Keyboard nav (↑ ↓ Enter Esc) | same |
 | Results route to `/stock/<ticker>` | same |
+
+---
+
+## Stocks browse page
+
+Equity browse surface at `/stocks`, modelled on real broker apps (Groww,
+Zerodha Kite). Card grid with live-tick flashes, market-aware footers,
+infinite scroll. Composes existing data sources — no new feed wired in.
+
+| What | Where |
+|---|---|
+| `/stocks/categories` — grouped chips (Movers · Indices · Sectors). Indices that didn't load are silently dropped | `internal/stocks.Handler.categories` |
+| `/stocks/catalog?category=&q=&offset=&limit=` — paginated card payload with `{items, total, offset, hasMore}`. Same MGET-the-cache pattern the sectors handler uses | `Handler.catalog` |
+| **No filter selected by default** — page opens to a "type to search" blank slate. Empty category + non-empty `q` triggers a universe search across every loaded NSE EQ row, with Yahoo fallback (matching the home SearchBar) so BSE-only or otherwise unindexed tickers still surface | `Handler.universeSearch` · `price.SearchInstrumentsPaged` |
+| Three "Movers" chips — `gainers` / `losers` / `active` — rank inside NIFTY 500 by `changePct` (descending / ascending / abs-desc) | `Handler.resolveCategory` |
+| `index:*` and `sector:*` chips share the same code path (`indices.Tickers(slug)`); sectors are no longer separately curated | `Handler.resolveCategory` |
+| Live tick flash — each card briefly outlines green/red when its price ticks; refs use `useRef` of the previous price | `pages/Stocks.tsx` (`Card`) |
+| Market-mood pill — derives advancing / declining / avg % live from the visible cards; stacked progress bar updates as ticks land | `MarketMood` (same file) |
+| `LiveBadge` in the header reflects market status (Live / Pre-open / Closed / Holiday / Weekend) | `components/LiveBadge.tsx` |
+| Per-card freshness footer is **market-aware** — shows `Closed · <label>` when the exchange is shut, `live` / `30s ago` / `5m ago` only during market hours | `Stocks.TickStamp` |
+| Stable per-ticker badge color via a string-hash to a 6-color palette | `iconColor` |
+| AnimatePresence transitions on category change (~180 ms fade + slide) with a stagger on each card | same |
+| URL syncs `?category=…` for shareable filtered views | `useSearchParams` |
+| Infinite scroll via `useInfiniteScroll` callback ref + IntersectionObserver, 300 px `rootMargin` | `hooks/useInfiniteScroll.ts` |
+
+---
+
+## Mutual funds catalog
+
+Browse surface at `/funds`. Backed entirely by mfapi.in (the public mirror
+of AMFI's NAV file) — no curated fund list anywhere in the codebase.
+
+| What | Where |
+|---|---|
+| AMFI directory loaded once at server boot, cached in Redis 24 h (`mf:directory:v2`); refreshed daily | `internal/mf.Service.Start` · `loadOnce` |
+| Filtered to **Direct Plan + Growth** only; Dividend / IDCW / payout / reinvest schemes are skipped | `mf.classify` |
+| Category bucketed by name keywords into 21 groups (Large Cap, Mid Cap, Small Cap, Flexi Cap, ELSS, Aggressive Hybrid, Index, Sectoral, Debt, …); ordering matters so "small cap index" lands under Index, "ELSS Tax Saver" lands under ELSS | `mf.categoryFromName` |
+| Tickers use the canonical `MF<schemeCode>` shape (e.g., `MF120586`); transactions and SIPs store this verbatim | `price.ParseMFTicker` · `IsMFTicker` |
+| Legacy short demo tickers (`AXISBLUE`, `PPFAS`, `QUANTSM`, `MIRAE`) kept as a back-compat shim in `MFSchemes` | `internal/price/mfapi.go` |
+| `/mf/categories` returns `{category, count}` rows in retail-app order | `mf.Service.Categories` |
+| `/mf/catalog?category=&q=&offset=&limit=` paginated, returns `{items, total, offset, hasMore}` | `mf.Handler.catalog` |
+| NAV resolution per card (parallel goroutines): live `price.Cache` → 1-h Redis cache → mfapi `/latest`; in-flight de-dup via `sync.Map` so 50 concurrent page-loads make 1 upstream call per scheme | `mf.Handler.navFor` · `fetchNAV` |
+| Page UI: search bar, category chips with live counts, card grid, infinite scroll, lumpsum/SIP CTA buttons per card | `pages/MutualFunds.tsx` |
+| `MfInvestDialog` — single dialog with Lumpsum / SIP toggle. Lumpsum: amount → units = amount / NAV → POST `/transactions` (`assetType=mf`). SIP: amount + frequency + start date → POST `/sips` | `components/MfInvestDialog.tsx` |
+| **Real-time NAVs for held funds** — the price worker discovers MF tickers from `holdings WHERE asset_type='mf'` ∪ `sip_plans WHERE asset_type='mf' AND status='active'` ∪ legacy `MFSchemes`, polls each via mfapi every 30 min. New buys join the live stream within one tick | `cmd/price-worker.mfTickerDiscovery` · `price.RunMFAPIFeed` |
+
+---
+
+## Mutual fund detail page
+
+`/funds/:ticker` — full-fund deep-dive modeled on Groww's MF detail page.
+Reuses the existing `LiveChart` + `RangeSelector` for NAV history.
+
+| What | Where |
+|---|---|
+| Header — fund name, AMC + category chip, plan/option, big NAV, day-change chip, `LiveBadge`, lumpsum / SIP CTAs | `pages/MutualFundDetail.tsx` |
+| NAV chart — same `useCandles` hook stocks use; the `/quotes/{ticker}/candles` route already dispatches MF tickers to `HistoryMF` | `LiveChart.tsx` · `RangeSelector.tsx` |
+| Returns table — 1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / since-inception. ≤ 1y are point-to-point absolute %; ≥ 3y are annualised CAGR (`(NAV_now / NAV_then)^(1/years) − 1`); pointer types so "0%" is distinguishable from "no data" | `internal/mf/returns.go` |
+| `navAt` does a binary search for the most recent NAV ≤ a target date — handles weekends + AMFI publish gaps | same |
+| Risk & performance card — annualised volatility (σ × √252), Sharpe ratio at 7% RFR, max drawdown with peak/trough/recovery dates, calendar-year returns bar chart, best/worst year, up/down month %, rolling 1Y stats | `internal/mf/metrics.go` · `components/MfMetricsCard.tsx` |
+| Return calculator — Lumpsum / SIP toggle, amount + horizon + expected-return sliders. Defaults expected-return to the fund's recent CAGR if available; reuses `lib/sip.ts` math | `components/MfReturnCalculator.tsx` |
+| My-position card — units / avg NAV / invested / value / P&L / day change, live-priced if user holds the fund | `MutualFundDetail` |
+| Information card — AMC, AMFI scheme code, plan, inception (oldest NAV), all-time-high/low NAV with dates; honest pointer to "AUM / expense ratio / fund manager aren't in AMFI's NAV feed — see the AMC factsheet or morningstar.in" | same |
+| Similar funds — same-category alternatives from `useMfCatalog({ category })` | `components/MfSimilarFunds.tsx` |
+| All metric & returns endpoints share the same Redis-cached full NAV history (`mf:history:full:{code}`, 24 h) — no extra upstream calls per request | `mf.Handler.fetchFullHistory` |
 
 ---
 
@@ -366,6 +436,14 @@ mid-dashboard lands at the top of the new page.
 - **Snapshot replay on connect** — `price.Hub.Handler` ships every cached
   quote to a freshly connected client (in a goroutine with a 2 s
   per-message timeout) so dashboards never paint `₹0` while waiting
+- **Infinite scroll** — `useInfiniteQuery` + `IntersectionObserver`
+  (`hooks/useInfiniteScroll.ts`, callback-ref based so it survives
+  AnimatePresence mount/unmount cycles) on both `/funds` and `/stocks`,
+  300 px `rootMargin`. Backend offset-paginated: `mf.Filter(... offset)`
+  walks the in-memory deterministic-order catalog; `SearchInstrumentsPaged`
+  walks the full Upstox index. Polling `refetchInterval` is dropped on the
+  paginated lists — refetching all loaded pages would be wasteful, and
+  the WebSocket already keeps prices fresh
 - **Bundle splitting** — Vite `manualChunks` for recharts / lightweight-charts / motion / radix / tanstack; `React.lazy()` on 9 of 10 authenticated routes
 - **Multi-stage Dockerfiles** — distroless backend (~20 MB), nginx frontend (~40 MB)
 - **`docker-compose.prod.yml`** — full stack with healthchecks + `restart: unless-stopped`

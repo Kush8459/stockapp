@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CircleDot,
   Pause,
+  Pencil,
   Play,
   Plus,
   Radio,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCancelSip, useSips, useUpdateSipStatus, type SipPlan } from "@/hooks/useSips";
 import { SipForm } from "@/components/SipForm";
+import { SipEditDialog } from "@/components/SipEditDialog";
 import { SipProjectionChart } from "@/components/SipProjectionChart";
 import { formatCountdown, useCountdown } from "@/components/Countdown";
 import { useLivePrices } from "@/hooks/useLivePrices";
@@ -32,6 +34,7 @@ export function SipsPage() {
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingPlan, setEditingPlan] = useState<SipPlan | null>(null);
 
   const filtered = useMemo(() => {
     if (statusFilter === "all") return data;
@@ -132,6 +135,7 @@ export function SipsPage() {
                 }
                 onToggle={(status) => update.mutate({ id: plan.id, status })}
                 onCancel={() => cancel.mutate(plan.id)}
+                onEdit={() => setEditingPlan(plan)}
               />
             ))}
           </ul>
@@ -139,6 +143,11 @@ export function SipsPage() {
       </section>
 
       <SipForm open={showForm} onOpenChange={setShowForm} />
+      <SipEditDialog
+        open={!!editingPlan}
+        onOpenChange={(v) => !v && setEditingPlan(null)}
+        plan={editingPlan}
+      />
     </div>
   );
 }
@@ -150,6 +159,7 @@ function Row({
   onToggleExpand,
   onToggle,
   onCancel,
+  onEdit,
 }: {
   plan: SipPlan;
   index: number;
@@ -157,6 +167,7 @@ function Row({
   onToggleExpand: () => void;
   onToggle: (status: "active" | "paused") => void;
   onCancel: () => void;
+  onEdit: () => void;
 }) {
   const { quotes } = useLivePrices();
   const isActive = plan.status === "active";
@@ -243,25 +254,35 @@ function Row({
         </button>
         <div className="flex items-center gap-1 border-l border-border/60 pl-3">
           {!isCancelled && (
-            <button
-              type="button"
-              onClick={() => onToggle(isActive ? "paused" : "active")}
-              className="btn-ghost h-8 px-2 text-xs"
-              aria-label={isActive ? "Pause" : "Resume"}
-            >
-              {isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              {isActive ? "Pause" : "Resume"}
-            </button>
-          )}
-          {!isCancelled && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-danger"
-              aria-label="Cancel plan"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onEdit}
+                className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-fg"
+                aria-label="Edit plan"
+                title="Edit"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggle(isActive ? "paused" : "active")}
+                className="btn-ghost h-8 px-2 text-xs"
+                aria-label={isActive ? "Pause" : "Resume"}
+              >
+                {isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {isActive ? "Pause" : "Resume"}
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-danger"
+                aria-label="Cancel plan"
+                title="Cancel"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
           )}
         </div>
       </motion.div>

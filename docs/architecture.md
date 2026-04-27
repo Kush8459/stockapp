@@ -12,12 +12,13 @@ process later with no API change.
 │  React (Vite + TS)              │ ─────────▶│  Go HTTP API                  │
 │  · dashboard, holdings,         │            │  · user, portfolio, txn,      │
 │    watchlist, sectors,          │            │    pnl, sip, alert, tax,      │
-│    stock detail (chart +        │            │    news, insights,            │
-│    fundamentals + financials)   │◀─────────  │    watchlist, dividend,       │
-│  · 100 ms-coalesced ticks       │   prices   │    market, sectors,           │
-└────────────┬────────────────────┘            │    fundamentals, indices      │
-             ▲                                  │  · WebSocket hub              │
-             │ snapshot                         └──────────┬────────────────────┘
+│    stocks browse, mutual        │            │    news, insights,            │
+│    funds browse + detail,       │◀─────────  │    watchlist, dividend,       │
+│    stock detail (chart +        │   prices   │    market, sectors,           │
+│    fundamentals + financials)   │            │    fundamentals, indices,     │
+│  · 100 ms-coalesced ticks       │            │    mf, stocks                 │
+└────────────┬────────────────────┘            │  · WebSocket hub              │
+             ▲                                  └──────────┬────────────────────┘
              │ on connect                                  │
              │                                             ▼
              │                                    ┌────────────────────┐
@@ -182,12 +183,69 @@ watches plus every NIFTY 500 constituent. The instruments CSV
 (`https://assets.upstox.com/.../complete.csv.gz`, ~9 000 NSE equities) is
 loaded into RAM at worker startup and powers two things: the search
 endpoint's local index, and key lookup (`LookupUpstoxKey`) for the WS
-subscribe payload.
+subscribe payload. Same load also populates a `bySymbol` map for O(1)
+`LookupInstrument(ticker)` calls, used by `/stocks/catalog` to enrich
+cards with company names.
 
 Loading happens at worker startup with a 30 s blocking timeout. This is
 worth the slight startup delay because subscribing later (after the WS
 is open) leaks a "snapshot only contains 33 stocks" bug — the snapshot
 dispatch needs the full set to be known.
+
+### Mutual funds via the AMFI mirror
+
+Upstox doesn't cover AMFI mutual funds. The `internal/mf` package fills
+that gap with one external dependency — `api.mfapi.in`, a public mirror
+of AMFI's daily NAV file. **No fund list is hardcoded**: at API-server
+boot, `mf.Service.Start` fetches the directory (~13 000 schemes), filters
+to Direct Plan + Growth, buckets each into one of 21 categories via
+name-keyword matching (`mf.classify`), and caches the result in Redis
+under `mf:directory:v2` for 24 h.
+
+Tickers for MFs use a canonical `MF<schemeCode>` form (e.g., `MF120586`).
+`price.ParseMFTicker` and `IsMFTicker` recognise this shape across the
+codebase, so transactions, SIPs, and the price worker all dispatch to
+mfapi without per-fund mapping. The four legacy short tickers
+(`AXISBLUE`, `PPFAS`, `QUANTSM`, `MIRAE`) still resolve via a small
+back-compat map for any existing seed data.
+
+Real-time NAVs flow the same way stocks do — through the price.Cache +
+WebSocket fan-out — but the discovery set is built differently. The
+worker calls `mfTickerDiscovery(ctx, db)` each tick: legacy `MFSchemes`
+keys ∪ DB query of `holdings WHERE asset_type='mf' AND quantity > 0` ∪
+`sip_plans WHERE asset_type='mf' AND status='active'`. New MF buys join
+the live-NAV stream within one mfapi poll interval (30 min) without a
+worker restart. AMFI publishes one NAV per scheme per trading day, so
+30 min is the right poll cadence — anything faster wastes upstream calls.
+
+Returns and risk metrics (`/mf/funds/{ticker}/returns` and
+`.../metrics`) compute from the same Redis-cached full NAV history
+(`mf:history:full:{code}`, 24-h TTL). One upstream fetch supports both
+endpoints plus the `RangeMax` chart request — they share a single
+`navPoint` series.
+
+### Stocks browse: composition, not new data
+
+`internal/stocks` is a thin adapter that exposes browse-style endpoints
+(`/stocks/categories`, `/stocks/catalog`) over data that already exists
+elsewhere: `indices.Tickers(slug)` for index/sector membership,
+`price.Cache.GetMany` for live quotes, `price.LookupInstrument` for
+company names, `price.SearchInstrumentsPaged` for the universe-search
+fallback. No new external dependency, no new package state.
+
+Sectoral indices use the **same NSE-archives loader** as broad indices.
+The `Index.Category` field (`"broad"` | `"sector"`) splits them in the
+categories endpoint, but the `resolveCategory` code path is identical
+for `index:nifty50` and `sector:niftybank` — both call `indices.Tickers`.
+This deliberately replaces the older curated `internal/sectors` map for
+the new browse surface. (The old `/sectors` endpoint is kept for the
+right sidebar's back-compat, since it returns a slightly different shape
+with index quote + per-component quotes in one payload.)
+
+The catalog endpoint paginates with `?offset=&limit=` so the frontend's
+`useInfiniteQuery` can lazily load the long tail. For movers categories
+the sort happens before the slice, keeping pagination order stable
+within a session even as prices move.
 
 ## What's deferred
 

@@ -36,6 +36,17 @@ const SectorDetailPage = lazy(() =>
 const WatchlistPage = lazy(() =>
   import("@/pages/Watchlist").then((m) => ({ default: m.WatchlistPage })),
 );
+const StocksPage = lazy(() =>
+  import("@/pages/Stocks").then((m) => ({ default: m.StocksPage })),
+);
+const MutualFundsPage = lazy(() =>
+  import("@/pages/MutualFunds").then((m) => ({ default: m.MutualFundsPage })),
+);
+const MutualFundDetailPage = lazy(() =>
+  import("@/pages/MutualFundDetail").then((m) => ({
+    default: m.MutualFundDetailPage,
+  })),
+);
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.accessToken);
@@ -147,6 +158,30 @@ export default function App() {
           element={
             <Suspense fallback={<RouteLoader />}>
               <WatchlistPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/stocks"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <StocksPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/funds"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <MutualFundsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/funds/:ticker"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <MutualFundDetailPage />
             </Suspense>
           }
         />

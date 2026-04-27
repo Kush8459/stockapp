@@ -55,7 +55,7 @@ func main() {
 		}
 
 	case "real":
-		runRealFeeds(ctx, cache)
+		runRealFeeds(ctx, cache, db)
 
 	case "upstox":
 		// Upstox covers NSE stocks; MFs still ride on mfapi.in. If the user
@@ -63,7 +63,7 @@ func main() {
 		// keeps working end-to-end.
 		if cfg.Upstox.AccessToken == "" {
 			log.Warn().Msg("PRICE_SOURCE=upstox but UPSTOX_ACCESS_TOKEN is empty; falling back to 'real' (Yahoo+mfapi)")
-			runRealFeeds(ctx, cache)
+			runRealFeeds(ctx, cache, db)
 		} else {
 			// Block startup on the two universe loaders so the WS dispatch
 			// sees the full ~500-ticker NIFTY 500 set, not just the
@@ -103,14 +103,15 @@ func main() {
 // runRealFeeds dispatches the mock universe to its real provider:
 // NSE stocks go to Yahoo Finance, mutual funds to mfapi.in. Each runs in
 // its own goroutine so a slow provider doesn't block the other.
-func runRealFeeds(ctx context.Context, cache *price.Cache) {
-	var (
-		nseTickers []string
-		mfTickers  []string
-	)
+//
+// MFs are discovered dynamically per tick: any MF ticker held by a user
+// or referenced by an active SIP plan is polled, plus the legacy demo
+// scheme tickers in price.MFSchemes. New MF buys join the live-NAV set
+// within one mfapi poll interval (no worker restart).
+func runRealFeeds(ctx context.Context, cache *price.Cache, db *pgxpool.Pool) {
+	var nseTickers []string
 	for ticker := range price.MockUniverse {
 		if _, ok := price.MFSchemes[ticker]; ok {
-			mfTickers = append(mfTickers, ticker)
 			continue
 		}
 		if _, ok := price.NSESymbols[ticker]; ok {
@@ -122,8 +123,7 @@ func runRealFeeds(ctx context.Context, cache *price.Cache) {
 
 	log.Info().
 		Strs("nse", nseTickers).
-		Strs("mf", mfTickers).
-		Msg("starting real price feeds")
+		Msg("starting real price feeds (mf set discovered dynamically)")
 
 	var wg sync.WaitGroup
 	spawn := func(fn func() error, name string) {
@@ -140,12 +140,47 @@ func runRealFeeds(ctx context.Context, cache *price.Cache) {
 			return price.RunYahooFeed(ctx, cache, nseTickers, 30*time.Second)
 		}, "yahoo")
 	}
-	if len(mfTickers) > 0 {
-		spawn(func() error {
-			return price.RunMFAPIFeed(ctx, cache, mfTickers, 30*time.Minute)
-		}, "mfapi")
-	}
+	spawn(func() error {
+		return price.RunMFAPIFeed(ctx, cache, mfTickerDiscovery(ctx, db), 30*time.Minute)
+	}, "mfapi")
 	wg.Wait()
+}
+
+// mfTickerDiscovery returns a closure that, on every call, builds the
+// current set of MF tickers worth polling: legacy demo schemes from
+// price.MFSchemes ∪ any ticker stored in holdings (qty>0) or active
+// sip_plans whose asset_type='mf'. The DB query is best-effort — if it
+// fails, the legacy set still gets polled.
+func mfTickerDiscovery(ctx context.Context, db *pgxpool.Pool) func() []string {
+	return func() []string {
+		seen := make(map[string]struct{}, 16)
+		for t := range price.MFSchemes {
+			seen[t] = struct{}{}
+		}
+		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		rows, err := db.Query(qctx, `
+			SELECT DISTINCT ticker FROM holdings WHERE asset_type = 'mf' AND quantity > 0
+			UNION
+			SELECT DISTINCT ticker FROM sip_plans WHERE asset_type = 'mf' AND status = 'active'
+		`)
+		if err != nil {
+			log.Warn().Err(err).Msg("mfapi: ticker discovery query failed")
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var t string
+				if err := rows.Scan(&t); err == nil && price.IsMFTicker(t) {
+					seen[t] = struct{}{}
+				}
+			}
+		}
+		out := make([]string, 0, len(seen))
+		for t := range seen {
+			out = append(out, t)
+		}
+		return out
+	}
 }
 
 // runUpstoxFeeds dispatches NSE stocks to the Upstox v3 WebSocket feed and
@@ -156,12 +191,11 @@ func runRealFeeds(ctx context.Context, cache *price.Cache) {
 // the hardcoded MockUniverse for indices and demo tickers). New buys
 // automatically join the WS subscription within a minute, no restart.
 func runUpstoxFeeds(ctx context.Context, cache *price.Cache, db *pgxpool.Pool, token string) {
-	// Build static MF + Yahoo-fallback sets from MockUniverse. These rarely
-	// change, so a one-shot dispatch is fine.
-	var mfTickers, yahooFallback []string
+	// Yahoo-fallback set: MockUniverse entries that aren't on Upstox and
+	// aren't MFs (e.g., demo tickers Upstox can't resolve).
+	var yahooFallback []string
 	for ticker := range price.MockUniverse {
-		if _, ok := price.MFSchemes[ticker]; ok {
-			mfTickers = append(mfTickers, ticker)
+		if price.IsMFTicker(ticker) {
 			continue
 		}
 		if _, ok := price.LookupUpstoxKey(ticker); !ok {
@@ -172,7 +206,7 @@ func runUpstoxFeeds(ctx context.Context, cache *price.Cache, db *pgxpool.Pool, t
 	// Dynamic Upstox set: MockUniverse stocks/indices + every NIFTY 500
 	// constituent + every active holding/SIP ticker, deduplicated.
 	addTicker := func(seen map[string]struct{}, t string) {
-		if _, mf := price.MFSchemes[t]; mf {
+		if price.IsMFTicker(t) {
 			return
 		}
 		if _, ok := price.LookupUpstoxKey(t); !ok {
@@ -223,8 +257,7 @@ func runUpstoxFeeds(ctx context.Context, cache *price.Cache, db *pgxpool.Pool, t
 
 	log.Info().
 		Strs("yahoo_fallback", yahooFallback).
-		Strs("mf", mfTickers).
-		Msg("starting upstox (dynamic) + mfapi price feeds")
+		Msg("starting upstox (dynamic) + mfapi price feeds (mf set discovered dynamically)")
 
 	var wg sync.WaitGroup
 	spawn := func(fn func() error, name string) {
@@ -244,10 +277,8 @@ func runUpstoxFeeds(ctx context.Context, cache *price.Cache, db *pgxpool.Pool, t
 			return price.RunYahooFeed(ctx, cache, yahooFallback, 30*time.Second)
 		}, "yahoo")
 	}
-	if len(mfTickers) > 0 {
-		spawn(func() error {
-			return price.RunMFAPIFeed(ctx, cache, mfTickers, 30*time.Minute)
-		}, "mfapi")
-	}
+	spawn(func() error {
+		return price.RunMFAPIFeed(ctx, cache, mfTickerDiscovery(ctx, db), 30*time.Minute)
+	}, "mfapi")
 	wg.Wait()
 }

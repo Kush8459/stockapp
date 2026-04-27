@@ -379,6 +379,213 @@ Sector index + every component's live quote. 404 if slug unknown.
 
 ---
 
+## Stocks browse
+
+Public — no auth. Powers the `/stocks` page; composes existing index,
+sector, and movers data into one paginated card stream.
+
+### `GET /api/v1/stocks/categories`
+
+Filter chips grouped by `Movers`, `Indices`, `Sectors`. Indices that
+didn't load at startup are silently omitted so the UI never shows a
+chip that returns empty.
+
+```json
+{
+  "groups": [
+    {
+      "name": "Movers",
+      "items": [
+        { "id": "movers:gainers", "label": "Top gainers" },
+        { "id": "movers:losers",  "label": "Top losers" },
+        { "id": "movers:active",  "label": "Most active" }
+      ]
+    },
+    {
+      "name": "Indices",
+      "items": [
+        { "id": "index:nifty50", "label": "NIFTY 50", "count": 50 },
+        …
+      ]
+    },
+    {
+      "name": "Sectors",
+      "items": [
+        { "id": "sector:niftybank", "label": "Banking", "count": 12 },
+        …
+      ]
+    }
+  ]
+}
+```
+
+### `GET /api/v1/stocks/catalog?category=&q=&offset=0&limit=30`
+
+Paginated card payload. `category` is the `id` from `/categories` —
+`movers:{gainers,losers,active}` | `index:{slug}` | `sector:{slug}`.
+Empty `category` + non-empty `q` triggers a universe search across the
+loaded Upstox CSV with a Yahoo Finance fallback (so BSE-only stocks the
+local index doesn't cover still surface, matching `/search` behavior).
+Empty `category` + empty `q` returns `{items: [], total: 0}`.
+
+```json
+{
+  "items": [
+    {
+      "ticker": "RELIANCE",
+      "name": "RELIANCE INDUSTRIES LTD",
+      "exchange": "NSE",
+      "quote": { "ticker": "RELIANCE", "price": "…", "changePct": "…", "updatedAt": "…" }
+    }
+  ],
+  "category": "movers:gainers",
+  "total": 60,
+  "offset": 0,
+  "hasMore": true
+}
+```
+
+`hasMore` lets the frontend's `useInfiniteQuery` know whether to keep
+paging. The `total` figure reflects matches across the whole filter, so
+the UI can show "Showing 30 of 412".
+
+---
+
+## Mutual funds
+
+Public — no auth. The directory is the AMFI NAV file mirrored at
+mfapi.in, loaded once at boot and refreshed daily. No fund list is
+hardcoded.
+
+### `GET /api/v1/mf/categories`
+
+21 categories (Large Cap / Mid Cap / Small Cap / Flexi Cap / ELSS / …)
+in retail-app order, with counts.
+
+```json
+{
+  "items": [
+    { "category": "Large Cap", "count": 47 },
+    { "category": "Mid Cap",   "count": 32 },
+    …
+  ]
+}
+```
+
+### `GET /api/v1/mf/catalog?category=&q=&offset=0&limit=24`
+
+Paginated. Each item is a Direct-Plan-Growth fund with metadata + the
+latest NAV. NAV resolution per item: `price.Cache` (live for held funds)
+→ 1-h Redis cache → mfapi `/latest`. Goroutines run NAV fetches in
+parallel; in-flight de-dup ensures concurrent page-loads collapse to one
+upstream call per scheme.
+
+```json
+{
+  "items": [
+    {
+      "ticker": "MF120586",
+      "schemeCode": 120586,
+      "name": "ICICI Prudential Bluechip Fund - Direct Plan - Growth",
+      "amc": "ICICI",
+      "category": "Large Cap",
+      "planType": "Direct",
+      "option": "Growth",
+      "nav": {
+        "value": "84.7321",
+        "changePct": "0.42",
+        "asOf": "2026-04-26T16:30:00Z",
+        "stale": false
+      }
+    }
+  ],
+  "total": 47,
+  "offset": 0,
+  "hasMore": true
+}
+```
+
+### `GET /api/v1/mf/funds/:ticker`
+
+Single-fund metadata + NAV. `:ticker` is the canonical `MF<schemeCode>`
+form. 404 if not in the catalog.
+
+### `GET /api/v1/mf/funds/:ticker/returns`
+
+Computed from the cached full NAV history (`mf:history:full:{code}`,
+24-h TTL). ≤ 1y values are absolute point-to-point %; ≥ 3y values are
+annualised CAGR. Pointers are omitted (not returned) when the fund's
+history doesn't go back that far — the UI distinguishes "0% return"
+from "not enough data" via field presence.
+
+```json
+{
+  "ticker": "MF120586",
+  "schemeCode": 120586,
+  "navCurrent": "84.7321",
+  "navAsOf": "2026-04-26T16:30:00Z",
+  "inceptionDate": "2013-01-01T00:00:00Z",
+  "historyDays": 4863,
+  "oneMonth": 1.23,
+  "threeMonth": 5.41,
+  "sixMonth": 9.10,
+  "oneYear": 18.32,
+  "threeYear": 14.20,
+  "fiveYear": 16.74,
+  "tenYear": 12.40,
+  "sinceInception": 13.81,
+  "highestNav": "85.0010",
+  "highestNavDate": "2026-04-15T00:00:00Z",
+  "lowestNav": "9.8120",
+  "lowestNavDate": "2013-04-22T00:00:00Z"
+}
+```
+
+### `GET /api/v1/mf/funds/:ticker/metrics`
+
+Risk + performance, computed from the same cached history.
+
+```json
+{
+  "ticker": "MF120586",
+  "schemeCode": 120586,
+  "historyDays": 4863,
+  "navPointCount": 3320,
+  "riskFreeRate": 0.07,
+  "volatility": 14.82,
+  "sharpeRatio": 0.71,
+  "maxDrawdown": {
+    "percentDecline": 38.42,
+    "peakDate": "2020-01-14T00:00:00Z",
+    "peakNav": "47.2110",
+    "troughDate": "2020-03-23T00:00:00Z",
+    "troughNav": "29.0810",
+    "recoveryDate": "2020-11-09T00:00:00Z",
+    "durationDays": 69
+  },
+  "bestYear":  { "year": 2017, "return": 38.41 },
+  "worstYear": { "year": 2018, "return": -0.62 },
+  "yearlyReturns": [ { "year": 2014, "return": 42.10 }, … ],
+  "upMonthsPct": 64,
+  "downMonthsPct": 36,
+  "rolling1y": {
+    "windowDays": 365,
+    "sampleCount": 4498,
+    "bestReturn": 84.10,
+    "worstReturn": -28.54,
+    "averageReturn": 14.62,
+    "medianReturn": 13.91
+  }
+}
+```
+
+`volatility` is annualised stdev of daily log returns × √252, in %.
+`sharpeRatio` is `(geometric annualised return − 7%) / annualised vol`,
+unitless. Calendar-year returns drop the inception year (partial) and
+the current year (incomplete) so values are apples-to-apples.
+
+---
+
 ## Alerts
 
 ### `GET /api/v1/alerts`
@@ -430,19 +637,35 @@ Sector index + every component's live quote. 404 if slug unknown.
 ```json
 {
   "portfolioId": "uuid",
-  "ticker": "RELIANCE",
-  "assetType": "stock",
+  "ticker": "MF120586",
+  "assetType": "mf",
   "amount": "1000",
   "frequency": "monthly",
   "firstRunAt": "2026-05-01T00:00:00Z"
 }
 ```
 
+`frequency` accepts only `monthly` or `yearly` for new plans (legacy
+`daily`/`weekly` plans created before migration `000006` continue to run
+on the scheduler but can't be created via this endpoint). Ticker for MF
+SIPs uses the `MF<schemeCode>` convention; the new SIP form is MF-only.
+
 ### `PATCH /api/v1/sips/:id`
+
+Partial update — any subset of fields. `status` is mutually exclusive
+with the field-edit fields; the handler routes status changes through
+`SetStatus` and field edits through `Update` (COALESCE'd in SQL).
 
 ```json
 { "status": "paused" }
 ```
+
+```json
+{ "amount": "2500", "frequency": "yearly", "nextRunAt": "2027-04-01T00:00:00Z" }
+```
+
+400 `empty_update` if no fields are sent. 400 `bad_frequency` if a value
+other than `monthly` / `yearly` is sent.
 
 ### `DELETE /api/v1/sips/:id`
 

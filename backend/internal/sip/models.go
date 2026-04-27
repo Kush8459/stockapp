@@ -10,9 +10,13 @@ import (
 type Frequency string
 
 const (
+	// FreqDaily / FreqWeekly are accepted by the scheduler for legacy
+	// plans created before the UI was restricted to monthly + yearly.
+	// New plans can only be monthly or yearly (see handler.go).
 	FreqDaily   Frequency = "daily"
 	FreqWeekly  Frequency = "weekly"
 	FreqMonthly Frequency = "monthly"
+	FreqYearly  Frequency = "yearly"
 )
 
 type Status string
@@ -46,6 +50,8 @@ func Advance(t time.Time, f Frequency) time.Time {
 		return t.AddDate(0, 0, 7)
 	case FreqMonthly:
 		return t.AddDate(0, 1, 0)
+	case FreqYearly:
+		return t.AddDate(1, 0, 0)
 	}
 	return t
 }

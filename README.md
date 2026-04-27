@@ -3,7 +3,9 @@
 A production-style Indian-market investment tracker with live prices,
 double-entry transaction ledger, XIRR, SIP scheduling, multi-watchlists,
 dividend tracking, fundamentals + financials, sectoral heatmap, price
-alerts, tax P&L, AI portfolio review, and a real-time React dashboard.
+alerts, tax P&L, AI portfolio review, **stocks browse + mutual funds
+catalog with full risk/returns analytics**, and a real-time React
+dashboard.
 
 Built as a **Go backend + React frontend** with a modular-monolith
 architecture that preserves clean service seams for future extraction.
@@ -11,7 +13,9 @@ architecture that preserves clean service seams for future extraction.
 > See [`docs/roadmap.md`](docs/roadmap.md) for the original product spec and
 > [`docs/architecture.md`](docs/architecture.md) for the design decisions.
 
-**Live demo:** _coming soon_ — see [`docs/deployment.md`](docs/deployment.md).
+**Live demo:** _coming soon_ — deploying free on Oracle Cloud, see
+[`docs/oracle-deploy.md`](docs/oracle-deploy.md). For other hosts (Railway,
+Fly.io, Hetzner, AWS), see [`docs/deployment.md`](docs/deployment.md).
 
 ---
 
@@ -39,7 +43,20 @@ architecture that preserves clean service seams for future extraction.
   loaded at startup; per-user subscribe re-runs every 60 s so new buys
   join the live stream within a minute
 - **Indices coverage** — NIFTY 50 / Next 50 / 100 / Midcap 100 / 500 +
-  BankNifty + 11 sectoral indices, scraped from NSE archives
+  14 sectoral indices (Banking, IT, Auto, Pharma, FMCG, Metal, Realty,
+  Energy, Media, PSU Bank, Consumer Durables, Healthcare, Oil & Gas)
+  loaded dynamically from NSE archives — same code path for both groups
+- **Stocks browse** — `/stocks` page with Movers / Indices / Sectors
+  chips, live tick-flash on every card, market-mood pill, infinite
+  scroll. Universe-search across the full Upstox CSV with Yahoo fallback
+- **Mutual funds catalog** — `/funds` page with the full AMFI directory
+  (~13 000 schemes loaded from mfapi.in, filtered to Direct + Growth, 21
+  auto-categorized buckets). Per-fund detail page with returns table
+  (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / since-inception), risk metrics
+  (volatility, Sharpe at 7% RFR, max drawdown with peak/trough/recovery,
+  calendar-year + rolling 1Y returns, up/down-month %), Lumpsum / SIP
+  return calculator, similar-funds rail. NAVs go live for held funds via
+  the same WebSocket pipeline stocks use
 - **Market context bar** — live NIFTY 50 / SENSEX / BankNifty / NIFTY IT
   ticker plus market-open/closed badge from the NSE 2026 holiday calendar
 - **Sectoral heatmap** — right sidebar with 11 sectoral indices; click any
@@ -60,7 +77,9 @@ architecture that preserves clean service seams for future extraction.
 - **Append-only audit log** — Postgres triggers block `UPDATE` / `DELETE`
 - **Buy/Sell with `SELECT FOR UPDATE`** — race-safe position management
 - **XIRR** — Newton–Raphson with bisection fallback; per-portfolio + per-holding
-- **SIP scheduler** — cron goroutine with `FOR UPDATE SKIP LOCKED` claim
+- **SIP scheduler** — cron goroutine with `FOR UPDATE SKIP LOCKED` claim,
+  monthly + yearly cadences, MF-only ticker picker, start-date selector,
+  edit-existing dialog (amount / frequency / next-run all editable)
 - **Price alerts** — trigger engine consumes the price stream; user-scoped
   WebSocket fan-out so only you see your alerts
 - **Tax P&L report** — FIFO lot matching, STCG / LTCG per Indian FY
@@ -145,7 +164,8 @@ Full deployment guide with Railway, Fly.io, and VPS walk-throughs:
 | [`docs/features.md`](docs/features.md) | Every shipped feature and how it works |
 | [`docs/api.md`](docs/api.md) | REST + WebSocket reference |
 | [`docs/development.md`](docs/development.md) | Local setup, package map, common tasks |
-| [`docs/deployment.md`](docs/deployment.md) | Hosting on Railway / Fly / VPS / cloud |
+| [`docs/oracle-deploy.md`](docs/oracle-deploy.md) | **Free** end-to-end deploy on Oracle Cloud Always Free |
+| [`docs/deployment.md`](docs/deployment.md) | Other hosts: Railway / Fly / VPS / cloud |
 | [`docs/architecture.md`](docs/architecture.md) | Design decisions, extraction path |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common issues + fixes |
 | [`docs/roadmap.md`](docs/roadmap.md) | Original product roadmap |
@@ -177,9 +197,11 @@ Full deployment guide with Railway, Fly.io, and VPS walk-throughs:
 │   │   ├── watchlist/        # multi-list watchlists + items
 │   │   ├── dividend/         # dividend log + Yahoo-sourced auto-suggest
 │   │   ├── fundamentals/     # Yahoo quoteSummary (valuation + financials + balance sheet + cash flow)
-│   │   ├── indices/          # NIFTY constituents from NSE archives
+│   │   ├── indices/          # NIFTY broad + sectoral constituents from NSE archives
 │   │   ├── market/           # NSE trading hours + holiday calendar + movers
-│   │   ├── sectors/          # 11 sectoral indices + components for the heatmap
+│   │   ├── sectors/          # heatmap right-sidebar (back-compat curated map)
+│   │   ├── stocks/           # /stocks browse — categories + paginated catalog
+│   │   ├── mf/               # AMFI directory (mfapi.in) — catalog, returns, metrics
 │   │   ├── news/             # NewsAPI integration with Redis cache
 │   │   ├── insights/         # Gemini-powered AI review
 │   │   └── tax/              # FIFO tax-lot matching + STCG/LTCG (Indian post-Jul-2024 rates)
@@ -188,9 +210,9 @@ Full deployment guide with Railway, Fly.io, and VPS walk-throughs:
 │   └── go.mod
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/            # Dashboard, Holdings, Watchlist, StockDetail, SectorDetail, Transactions*, Alerts, Sips, Tax, Login, Register
-│   │   ├── components/       # AppShell, MarketContextBar, MarketStatusBar, SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard, EventsCard, DividendsCard, WatchlistPopover, HoldingsTable, TradeDialog, AlertForm, AiInsights, NewsFeed, …
-│   │   ├── hooks/            # TanStack Query hooks + useLivePrices (100 ms coalesce) + useDebounce
+│   │   ├── pages/            # Dashboard, Holdings, Watchlist, Stocks, MutualFunds, MutualFundDetail, StockDetail, SectorDetail, Transactions*, Alerts, Sips, Tax, Login, Register
+│   │   ├── components/       # AppShell, MarketContextBar, MarketStatusBar, SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard, EventsCard, DividendsCard, WatchlistPopover, HoldingsTable, TradeDialog, AlertForm, AiInsights, NewsFeed, MfInvestDialog, MfMetricsCard, MfReturnCalculator, MfSearchPicker, MfSimilarFunds, SipEditDialog, TickerSearchPicker, …
+│   │   ├── hooks/            # TanStack Query hooks + useLivePrices (100 ms coalesce) + useInfiniteScroll + useDebounce
 │   │   ├── store/            # Zustand (auth, alertEvents)
 │   │   └── lib/              # api client, utils, csv
 │   ├── Dockerfile            # multi-stage → nginx

@@ -34,8 +34,14 @@ type createReq struct {
 	FirstRunAt  string `json:"firstRunAt,omitempty"`
 }
 
-type statusReq struct {
-	Status string `json:"status"`
+// updateReq is the PATCH /sips/{id} body. Every field is optional — any
+// subset can be sent. `Status` is mutually exclusive with the others
+// (status changes flow through SetStatus; field edits flow through Update).
+type updateReq struct {
+	Status    *string `json:"status,omitempty"`
+	Amount    *string `json:"amount,omitempty"`
+	Frequency *string `json:"frequency,omitempty"`
+	NextRunAt *string `json:"nextRunAt,omitempty"`
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -75,9 +81,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	freq := Frequency(strings.ToLower(req.Frequency))
 	switch freq {
-	case FreqDaily, FreqWeekly, FreqMonthly:
+	case FreqMonthly, FreqYearly:
 	default:
-		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_frequency", "frequency must be daily|weekly|monthly"))
+		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_frequency", "frequency must be monthly or yearly"))
 		return
 	}
 	first := time.Now().UTC()
@@ -121,19 +127,67 @@ func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_id", "invalid id"))
 		return
 	}
-	var req statusReq
+	var req updateReq
 	if err := httpx.Decode(r, &req); err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	status := Status(strings.ToLower(req.Status))
-	switch status {
-	case StatusActive, StatusPaused, StatusCancelled:
-	default:
-		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_status", "status must be active|paused|cancelled"))
+
+	// Status edits are isolated from field edits — running SetStatus
+	// alongside an Update would require a transaction without buying
+	// much. Most clients only need one or the other.
+	if req.Status != nil {
+		status := Status(strings.ToLower(*req.Status))
+		switch status {
+		case StatusActive, StatusPaused, StatusCancelled:
+		default:
+			httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_status", "status must be active|paused|cancelled"))
+			return
+		}
+		if err := h.repo.SetStatus(r.Context(), userID, id, status); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.Error(w, r, httpx.ErrNotFound)
+				return
+			}
+			httpx.Error(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.repo.SetStatus(r.Context(), userID, id, status); err != nil {
+
+	in := UpdateInput{}
+	if req.Amount != nil {
+		amt, err := decimal.NewFromString(*req.Amount)
+		if err != nil || amt.Sign() <= 0 {
+			httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_amount", "amount must be > 0"))
+			return
+		}
+		in.Amount = &amt
+	}
+	if req.Frequency != nil {
+		freq := Frequency(strings.ToLower(*req.Frequency))
+		switch freq {
+		case FreqMonthly, FreqYearly:
+		default:
+			httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_frequency", "frequency must be monthly or yearly"))
+			return
+		}
+		in.Frequency = &freq
+	}
+	if req.NextRunAt != nil {
+		t, err := time.Parse(time.RFC3339, *req.NextRunAt)
+		if err != nil {
+			httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "bad_next_run_at", "nextRunAt must be RFC3339"))
+			return
+		}
+		in.NextRunAt = &t
+	}
+	if in.Amount == nil && in.Frequency == nil && in.NextRunAt == nil {
+		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "empty_update", "no fields to update"))
+		return
+	}
+	if err := h.repo.Update(r.Context(), userID, id, in); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			httpx.Error(w, r, httpx.ErrNotFound)
 			return

@@ -20,6 +20,27 @@ fundamentals + financials (Yahoo `quoteSummary`), market context bar,
 11-sector heatmap, NIFTY-filterable top movers, dynamic Upstox subscribe
 across ~9 000 NSE equities.
 
+**Recent additions** (since the last roadmap revision):
+
+- **Mutual funds catalog** (`/funds`) — full AMFI directory loaded from
+  mfapi.in, 21 categories, per-fund detail page with returns table
+  (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / since-inception), risk metrics
+  (volatility, Sharpe, max drawdown, calendar-year + rolling 1Y returns),
+  return calculator (Lumpsum / SIP), similar-funds rail.
+- **Stocks browse** (`/stocks`) — Movers / Indices / Sectors chips, live
+  market-mood pill, tick-flash animation per card, market-aware
+  freshness footer. Sectoral indices loaded dynamically via the same
+  NSE archives path as broad indices (no curated list).
+- **Infinite scroll** — `useInfiniteQuery` + IntersectionObserver
+  callback ref on both `/funds` and `/stocks`. Backend offset-paginated.
+- **MF-only SIP picker** + monthly/yearly-only frequencies + start-date
+  picker + edit existing SIPs. PATCH `/sips/{id}` accepts a partial body.
+- **Live MF NAVs** — price worker discovers held + active-SIP MF tickers
+  every poll and includes them in the mfapi feed (same dynamic-discovery
+  pattern stocks already use).
+- Search behavior unified between the home bar and `/stocks` (Yahoo
+  fallback when the local Upstox CSV has zero hits).
+
 See [`features.md`](features.md) for the full inventory of what's shipped.
 
 ---
@@ -170,9 +191,6 @@ Pick these up between phases or fold into one of the above.
 - **Silent dividend import** — one-click button in the dividends card
   that takes the auto-suggest list and POSTs them all in one go
   (offered earlier; never wired up)
-- **Sector data dynamic instead of hardcoded** — `internal/sectors/data.go`
-  is a static map. Replace with NSE sectoral-index constituents fetched
-  at startup like the broad indices already are
 - **Per-user WS filter** — currently the hub broadcasts every ticker to
   every client. Filter to the user's holdings + watchlist + currently
   open page. The 100 ms client coalesce buffer mitigates this for now
@@ -181,6 +199,15 @@ Pick these up between phases or fold into one of the above.
 - **Migration `holdings.asset_type` CHECK** — still permits `'crypto'`
   even though no code path creates them. Tighten to `('stock','mf')`
   in a new additive migration
+- **Migrate `/sectors` away from hardcoded `sectors.All`** — the right
+  sidebar still uses `internal/sectors/data.go`'s curated map. The newer
+  `/stocks/catalog?category=sector:…` resolves through `indices.Catalog`
+  (NSE archives). Either point the sidebar at `/stocks/catalog` and
+  retire `internal/sectors`, or rebuild that handler on top of indices.
+- **Stable cursor for movers pagination** — currently movers are sorted
+  in-memory and sliced by offset. Within one user session this is fine
+  (sort doesn't shift much in 30 s) but a long browse + price churn can
+  cause minor duplicates. A request-time snapshot ID would fix it.
 
 ---
 

@@ -118,9 +118,11 @@ backend/
 │   ├── watchlist/         Multi-list watchlists + items + memberships
 │   ├── dividend/          Dividend log + Yahoo-sourced auto-suggest
 │   ├── fundamentals/      Yahoo quoteSummary + crumb-based session manager
-│   ├── indices/           NSE archive CSV loader for NIFTY 50 / 100 / Midcap / 500
+│   ├── indices/           NSE archive CSV loader for NIFTY broad + sectoral indices
 │   ├── market/            NSE trading hours + 2026 holiday calendar + movers handler
-│   ├── sectors/           11 sectoral indices + components hardcoded; heatmap handler
+│   ├── sectors/           Hardcoded 11-sector heatmap (right sidebar, back-compat)
+│   ├── stocks/            /stocks browse — categories + paginated catalog over indices
+│   ├── mf/                /funds browse — AMFI directory loader + returns + metrics
 │   ├── news/              NewsAPI + keyword sentiment
 │   ├── insights/          Gemini client + portfolio snapshot + prompt + schema
 │   └── tax/               FIFO lot matching + per-FY tax buckets (Indian post-Jul-2024)
@@ -130,14 +132,18 @@ backend/
 frontend/
 ├── src/
 │   ├── pages/             One file per route — Dashboard, Holdings, Watchlist,
-│   │                      StockDetail, SectorDetail, Transactions, TransactionDetail,
+│   │                      Stocks, MutualFunds, MutualFundDetail, StockDetail,
+│   │                      SectorDetail, Transactions, TransactionDetail,
 │   │                      Sips, Alerts, Tax, Login, Register
 │   ├── components/        Reusable UI — AppShell, MarketContextBar, MarketStatusBar,
 │   │                      SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard,
 │   │                      EventsCard, AboutCard, DividendsCard, WatchlistPopover,
 │   │                      HoldingsTable, TradeDialog, AlertForm, AiInsights, NewsFeed,
-│   │                      LiveChart, RangeSelector, …
-│   ├── hooks/             TanStack Query + WebSocket (useLivePrices with 100 ms coalesce) + misc
+│   │                      LiveChart, RangeSelector, MfInvestDialog, MfMetricsCard,
+│   │                      MfReturnCalculator, MfSearchPicker, MfSimilarFunds,
+│   │                      SipEditDialog, TickerSearchPicker, …
+│   ├── hooks/             TanStack Query + WebSocket (useLivePrices with 100 ms coalesce)
+│   │                      + useInfiniteScroll (callback-ref IntersectionObserver) + misc
 │   ├── store/             Zustand (auth, alertEvents)
 │   └── lib/               api client (axios), utils, csv
 ├── vite.config.ts         Bundle splitting lives here

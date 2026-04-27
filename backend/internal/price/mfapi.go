@@ -13,13 +13,48 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// MFSchemes maps our ticker → AMFI scheme code. mfapi.in wraps the official
-// AMFI NAV file and serves historical NAV per scheme with no auth.
+// MFSchemes maps short demo tickers → AMFI scheme code. This map is a
+// backward-compat shim for the original demo seed (AXISBLUE / PPFAS etc.) —
+// the curated MF catalog the UI surfaces is loaded dynamically from
+// mfapi.in's directory in package internal/mf, and transactions for those
+// funds use the canonical "MF<schemeCode>" ticker shape (see ParseMFTicker).
 var MFSchemes = map[string]int{
 	"AXISBLUE": 120465, // Axis Bluechip Fund - Direct Plan - Growth
 	"PPFAS":    122639, // Parag Parikh Flexi Cap Fund - Direct Plan - Growth
 	"QUANTSM":  120823, // Quant Small Cap Fund - Direct Plan - Growth
 	"MIRAE":    118989, // Mirae Asset Large Cap Fund - Direct Plan - Growth
+}
+
+// ParseMFTicker resolves a ticker to an AMFI scheme code. Two formats:
+//   - "MF120586" — canonical, used by the dynamically-loaded catalog
+//   - short names in MFSchemes (legacy demo tickers like "AXISBLUE")
+//
+// Returns (code, true) if the ticker maps to an MF scheme, (0, false) otherwise.
+func ParseMFTicker(ticker string) (int, bool) {
+	if code, ok := MFSchemes[ticker]; ok {
+		return code, true
+	}
+	if len(ticker) > 2 && ticker[:2] == "MF" {
+		var n int
+		for _, ch := range ticker[2:] {
+			if ch < '0' || ch > '9' {
+				return 0, false
+			}
+			n = n*10 + int(ch-'0')
+		}
+		if n > 0 {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// IsMFTicker reports whether a ticker resolves to a mutual-fund scheme.
+// Any code dispatching by asset class can use this instead of probing MFSchemes
+// directly, which would miss the MF<code> form.
+func IsMFTicker(ticker string) bool {
+	_, ok := ParseMFTicker(ticker)
+	return ok
 }
 
 type mfapiResponse struct {
@@ -37,23 +72,26 @@ type mfapiResponse struct {
 // RunMFAPIFeed updates the latest NAV for each MF ticker every `poll`. NAVs
 // are published once per trading day, so polling more than a few times per
 // hour is wasteful — 30 min is a reasonable default.
-func RunMFAPIFeed(ctx context.Context, cache *Cache, tickers []string, poll time.Duration) error {
-	if len(tickers) == 0 {
-		<-ctx.Done()
-		return ctx.Err()
-	}
+//
+// `tickersFn` is re-evaluated on every tick so new MF holdings or SIP plans
+// can join the live-NAV set without a worker restart. Returning an empty
+// slice is fine; the feed simply skips that tick.
+func RunMFAPIFeed(ctx context.Context, cache *Cache, tickersFn func() []string, poll time.Duration) error {
 	if poll <= 0 {
 		poll = 30 * time.Minute
 	}
 	client := newHTTPClient()
-	log.Info().Int("mfs", len(tickers)).Dur("poll", poll).Msg("mfapi feed starting")
+	log.Info().Dur("poll", poll).Msg("mfapi feed starting")
 
-	// One immediate pass.
-	for _, t := range tickers {
-		if err := fetchLatestNAV(ctx, client, cache, t); err != nil {
-			log.Warn().Err(err).Str("ticker", t).Msg("mfapi initial fetch")
+	pass := func() {
+		tickers := tickersFn()
+		for _, ticker := range tickers {
+			if err := fetchLatestNAV(ctx, client, cache, ticker); err != nil {
+				log.Warn().Err(err).Str("ticker", ticker).Msg("mfapi fetch")
+			}
 		}
 	}
+	pass()
 
 	t := time.NewTicker(poll)
 	defer t.Stop()
@@ -62,17 +100,13 @@ func RunMFAPIFeed(ctx context.Context, cache *Cache, tickers []string, poll time
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			for _, ticker := range tickers {
-				if err := fetchLatestNAV(ctx, client, cache, ticker); err != nil {
-					log.Warn().Err(err).Str("ticker", ticker).Msg("mfapi fetch")
-				}
-			}
+			pass()
 		}
 	}
 }
 
 func fetchLatestNAV(ctx context.Context, client *http.Client, cache *Cache, ticker string) error {
-	code, ok := MFSchemes[ticker]
+	code, ok := ParseMFTicker(ticker)
 	if !ok {
 		return fmt.Errorf("no scheme code for %s", ticker)
 	}
@@ -133,7 +167,7 @@ func fetchLatestNAV(ctx context.Context, client *http.Client, cache *Cache, tick
 // by truncating the server-side list (mfapi gives the full history on every
 // call; we trim to the requested window and sub-sample if needed).
 func HistoryMF(ctx context.Context, rdb *redis.Client, ticker string, r Range) ([]Candle, error) {
-	code, ok := MFSchemes[ticker]
+	code, ok := ParseMFTicker(ticker)
 	if !ok {
 		return nil, fmt.Errorf("no scheme code for %s", ticker)
 	}

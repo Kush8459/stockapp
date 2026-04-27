@@ -94,7 +94,7 @@ func (h *Handler) candles(w http.ResponseWriter, r *http.Request) {
 		items []Candle
 		err   error
 	)
-	if _, isMF := MFSchemes[ticker]; isMF {
+	if IsMFTicker(ticker) {
 		items, err = HistoryMF(r.Context(), h.rdb, ticker, rng)
 	} else {
 		items, err = HistoryYahoo(r.Context(), h.rdb, ticker, rng)

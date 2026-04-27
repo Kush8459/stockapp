@@ -9,6 +9,8 @@ import {
   Calculator,
   LogOut,
   Eye,
+  Layers,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { useLivePrices } from "@/hooks/useLivePrices";
@@ -21,6 +23,8 @@ import { SectorSidebar } from "./SectorSidebar";
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/holdings", label: "Holdings", icon: LineChart },
+  { to: "/stocks", label: "Stocks", icon: TrendingUp },
+  { to: "/funds", label: "Mutual funds", icon: Layers },
   { to: "/watchlist", label: "Watchlist", icon: Eye },
   { to: "/transactions", label: "Transactions", icon: History },
   { to: "/sips", label: "SIPs", icon: CalendarClock },

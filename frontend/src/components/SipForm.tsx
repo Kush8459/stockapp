@@ -5,14 +5,17 @@ import { usePortfolios } from "@/hooks/usePortfolio";
 import { useCreateSip } from "@/hooks/useSips";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { useToast } from "./Toaster";
-import { TickerPicker } from "./TickerPicker";
+import { MfSearchPicker } from "./MfSearchPicker";
 import { SipProjectionChart } from "./SipProjectionChart";
 import { apiErrorMessage } from "@/lib/api";
 import { cn, formatCompact, formatCurrency, formatPercent, toNum } from "@/lib/utils";
+import type { MfFund } from "@/hooks/useMfCatalog";
 import {
   annualContribution,
   nextRunDates,
   sipFutureValue,
+  startDateToFirstRunAt,
+  todayLocalISODate,
   type Frequency,
 } from "@/lib/sip";
 
@@ -27,9 +30,8 @@ const frequencies: Array<{
   label: string;
   note: string;
 }> = [
-  { value: "daily", label: "Daily", note: "Every 24h" },
-  { value: "weekly", label: "Weekly", note: "Every 7d" },
-  { value: "monthly", label: "Monthly", note: "Same day" },
+  { value: "monthly", label: "Monthly", note: "Same day each month" },
+  { value: "yearly", label: "Yearly", note: "Same day each year" },
 ];
 
 const amountPresets = [500, 1000, 2500, 5000, 10000];
@@ -38,8 +40,12 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
   const portfolios = usePortfolios();
   const portfolio = portfolios.data?.[0];
   const [ticker, setTicker] = useState(defaultTicker ?? "");
+  // Picked fund metadata — kept so the form can show name/NAV/category
+  // before the live-price WebSocket has caught up.
+  const [pickedFund, setPickedFund] = useState<MfFund | null>(null);
   const [amount, setAmount] = useState("1000");
   const [frequency, setFrequency] = useState<Frequency>("monthly");
+  const [startDate, setStartDate] = useState<string>(todayLocalISODate());
   const [rate, setRate] = useState(12); // expected annual return, %
   const [err, setErr] = useState<string | null>(null);
   const { push } = useToast();
@@ -47,8 +53,19 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
 
   const create = useCreateSip();
 
-  const livePrice = ticker ? toNum(quotes[ticker]?.price) : 0;
-  const dayChangePct = ticker ? toNum(quotes[ticker]?.changePct) : 0;
+  // Live tick wins; otherwise fall back to the catalog NAV embedded in
+  // the picked fund (the worker only polls held/SIP'd MFs in real-time).
+  const liveQuote = ticker ? quotes[ticker] : undefined;
+  const livePrice = liveQuote
+    ? toNum(liveQuote.price)
+    : pickedFund?.nav
+      ? toNum(pickedFund.nav.value)
+      : 0;
+  const dayChangePct = liveQuote
+    ? toNum(liveQuote.changePct)
+    : pickedFund?.nav?.changePct
+      ? toNum(pickedFund.nav.changePct)
+      : 0;
   const amountNum = toNum(amount);
   const unitsPerRun = livePrice > 0 ? amountNum / livePrice : 0;
 
@@ -57,9 +74,13 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
   const tenYearInvested = annual * 10;
   const tenYearGain = tenYearValue - tenYearInvested;
 
+  const startDateObj = useMemo(() => {
+    if (!startDate) return new Date();
+    return new Date(`${startDate}T00:00:00`);
+  }, [startDate]);
   const nextRuns = useMemo(
-    () => nextRunDates(new Date(), frequency, 3),
-    [frequency],
+    () => nextRunDates(startDateObj, frequency, 3),
+    [startDateObj, frequency],
   );
 
   async function onSubmit(e: FormEvent) {
@@ -70,7 +91,7 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
       return;
     }
     if (!ticker.trim()) {
-      setErr("Pick a ticker first.");
+      setErr("Pick a mutual fund first.");
       return;
     }
     if (amountNum <= 0) {
@@ -81,14 +102,15 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
       await create.mutateAsync({
         portfolioId: portfolio.id,
         ticker: ticker.toUpperCase().trim(),
-        assetType: "stock",
+        assetType: "mf",
         amount,
         frequency,
+        firstRunAt: startDateToFirstRunAt(startDate),
       });
       push({
         kind: "success",
         title: "SIP created",
-        description: `₹${amountNum.toLocaleString("en-IN")} of ${ticker} every ${frequency}.`,
+        description: `₹${amountNum.toLocaleString("en-IN")} ${frequency} into ${pickedFund?.amc ?? ticker}.`,
       });
       onOpenChange(false);
     } catch (e2) {
@@ -108,7 +130,8 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
                 New SIP
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-fg-muted">
-                Automate a recurring buy. We'll execute at the live market price each run.
+                Automate a recurring mutual-fund investment. Each run buys at
+                that day's NAV.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -123,26 +146,41 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
             onSubmit={onSubmit}
             className="space-y-5 overflow-y-auto px-6 py-5"
           >
-            {/* Asset picker + live price */}
+            {/* Mutual-fund picker + NAV */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="label">Asset</label>
+                <label className="label">Mutual fund</label>
                 {ticker && livePrice > 0 && (
                   <span className="num text-xs">
-                    <span className="text-fg-muted">live </span>
+                    <span className="text-fg-muted">NAV </span>
                     <span className="font-medium">{formatCurrency(livePrice)}</span>
-                    <span
-                      className={cn(
-                        "ml-1.5",
-                        dayChangePct >= 0 ? "pos" : "neg",
-                      )}
-                    >
-                      {formatPercent(dayChangePct)}
-                    </span>
+                    {liveQuote ? (
+                      <span
+                        className={cn(
+                          "ml-1.5",
+                          dayChangePct >= 0 ? "pos" : "neg",
+                        )}
+                      >
+                        {formatPercent(dayChangePct)}
+                      </span>
+                    ) : (
+                      <span className="ml-1.5 text-fg-subtle">snapshot</span>
+                    )}
                   </span>
                 )}
               </div>
-              <TickerPicker value={ticker} onChange={setTicker} />
+              <MfSearchPicker
+                value={ticker}
+                onChange={setTicker}
+                onPick={setPickedFund}
+                selected={pickedFund}
+              />
+              {pickedFund && (
+                <div className="text-[11px] text-fg-subtle">
+                  <span className="text-fg-muted">{pickedFund.amc}</span> ·{" "}
+                  {pickedFund.category}
+                </div>
+              )}
             </div>
 
             {/* Amount */}
@@ -183,7 +221,7 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
                 <div className="num flex items-center gap-1.5 text-[11px] text-fg-muted">
                   <Sparkles className="h-3 w-3 text-brand" />
                   you'll get ≈ <span className="text-fg">{unitsPerRun.toFixed(4)}</span>{" "}
-                  units of {ticker} each run
+                  units each run
                 </div>
               )}
             </div>
@@ -191,7 +229,7 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
             {/* Frequency */}
             <div className="space-y-2">
               <label className="label">Frequency</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {frequencies.map((f) => (
                   <button
                     type="button"
@@ -211,12 +249,39 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
               </div>
             </div>
 
+            {/* Start date */}
+            <div className="space-y-2">
+              <label className="label" htmlFor="sip-start-date">
+                Start date
+              </label>
+              <input
+                id="sip-start-date"
+                type="date"
+                className="input num"
+                min={todayLocalISODate()}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <p className="text-[11px] text-fg-subtle">
+                {startDate === todayLocalISODate()
+                  ? "Runs immediately, then every period."
+                  : `First run scheduled for ${new Date(`${startDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}.`}
+              </p>
+            </div>
+
             {/* Next 3 runs preview */}
             <div className="rounded-lg border border-border bg-bg-soft/60 p-3">
               <div className="label mb-2">Next 3 runs</div>
               <ol className="num space-y-1 text-[12px] text-fg-muted">
                 <li>
-                  <span className="text-fg">now</span> — first auto-execute
+                  <span className="text-fg">
+                    {startDateObj.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>{" "}
+                  — first run
                 </li>
                 {nextRuns.map((d, i) => (
                   <li key={i}>
@@ -226,12 +291,7 @@ export function SipForm({ open, onOpenChange, defaultTicker }: SipFormProps) {
                         month: "short",
                         day: "numeric",
                       })}
-                    </span>{" "}
-                    —{" "}
-                    {d.toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    </span>
                   </li>
                 ))}
               </ol>
