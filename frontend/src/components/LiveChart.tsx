@@ -7,6 +7,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { useChartTheme } from "@/hooks/useChartTheme";
 
 export interface Point {
   time: number; // unix seconds
@@ -32,6 +33,7 @@ export function LiveChart({ history, lastTick, height = 260 }: LiveChartProps) {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const lastTimeRef = useRef<number>(0);
+  const chartTheme = useChartTheme();
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -39,22 +41,22 @@ export function LiveChart({ history, lastTick, height = 260 }: LiveChartProps) {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { color: "transparent" },
-        textColor: "#8a95a6",
+        textColor: chartTheme.fgMuted,
         fontFamily: "Inter, ui-sans-serif, system-ui",
         // lightweight-charts ≥ v5: hide the TradingView watermark.
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: `${chartTheme.fg}0a` },
+        horzLines: { color: `${chartTheme.fg}0a` },
       },
       rightPriceScale: {
-        borderColor: "#1c2431",
+        borderColor: chartTheme.border,
         // Keep the price axis from squishing labels at narrow widths.
         scaleMargins: { top: 0.12, bottom: 0.1 },
       },
       timeScale: {
-        borderColor: "#1c2431",
+        borderColor: chartTheme.border,
         timeVisible: true,
         secondsVisible: true,
         // Auto-hide tick labels that can't fit — prevents overlap on resize.
@@ -99,10 +101,18 @@ export function LiveChart({ history, lastTick, height = 260 }: LiveChartProps) {
       seriesRef.current = null;
       lastTimeRef.current = 0;
     };
-  }, [height]);
+    // chartTheme covers the theme dependency — when the user toggles, the
+    // chart is re-created with the new colors. The history seed effect
+    // below runs on the next paint and reseeds the data.
+  }, [height, chartTheme]);
 
   // Seed / reset history. lightweight-charts requires strictly-ascending times;
   // we dedupe and coerce any accidental collisions by bumping by 1s.
+  //
+  // Deps include `chartTheme` and `height` so this effect also re-runs after
+  // the create-chart effect rebuilds the chart (e.g. on theme toggle). Without
+  // those, a fresh chart instance would render an empty canvas because the
+  // seed wouldn't fire again until `history` itself changed reference.
   useEffect(() => {
     const series = seriesRef.current;
     const chart = chartRef.current;
@@ -119,7 +129,7 @@ export function LiveChart({ history, lastTick, height = 260 }: LiveChartProps) {
     series.setData(cleaned);
     lastTimeRef.current = prev;
     chart.timeScale().fitContent();
-  }, [history]);
+  }, [history, chartTheme, height]);
 
   // Append a live tick — `update` is cheaper than setData and keeps the
   // viewport anchored.

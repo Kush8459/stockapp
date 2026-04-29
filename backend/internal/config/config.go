@@ -18,7 +18,6 @@ type Config struct {
 	JWT      JWT
 	Price    Price
 	News     News
-	Gemini   Gemini
 	Upstox   Upstox
 }
 
@@ -76,14 +75,6 @@ type News struct {
 	APIKey string
 }
 
-// Gemini holds the Google Gemini API config used by the AI insights service.
-// An empty APIKey disables /api/v1/insights with a 503.
-type Gemini struct {
-	APIKey        string
-	Model         string // primary, e.g. "gemini-2.5-flash"
-	FallbackModel string // used when primary 503s / rate-limits
-}
-
 // Load reads configuration from environment variables. It also reads a .env
 // file if one exists in the working directory or one level up.
 func Load() (*Config, error) {
@@ -108,9 +99,6 @@ func Load() (*Config, error) {
 	v.SetDefault("JWT_REFRESH_TTL", "720h")
 
 	v.SetDefault("PRICE_SOURCE", "mock")
-
-	v.SetDefault("GEMINI_MODEL", "gemini-2.5-flash")
-	v.SetDefault("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
 
 	v.SetDefault("UPSTOX_REDIRECT_URL", "http://localhost:8080/api/v1/integrations/upstox/callback")
 
@@ -162,11 +150,6 @@ func Load() (*Config, error) {
 		},
 		News: News{
 			APIKey: v.GetString("NEWSAPI_KEY"),
-		},
-		Gemini: Gemini{
-			APIKey:        v.GetString("GEMINI_API_KEY"),
-			Model:         v.GetString("GEMINI_MODEL"),
-			FallbackModel: v.GetString("GEMINI_FALLBACK_MODEL"),
 		},
 		Upstox: Upstox{
 			APIKey:      v.GetString("UPSTOX_API_KEY"),

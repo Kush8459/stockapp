@@ -28,11 +28,28 @@ type WsEvent =
 // absorb React StrictMode's mount → unmount → remount cycle in dev.
 // ─────────────────────────────────────────────────────────────────────────
 
-type Listener = (s: { quotes: Record<string, Quote>; connected: boolean }) => void;
+export interface LiveSnapshot {
+  quotes: Record<string, Quote>;
+  connected: boolean;
+  /** ms epoch when the connection went down. null while connected. */
+  downSince: number | null;
+  /**
+   * Increments on every successful (re)open after a prior disconnect. Useful
+   * as a `useEffect` dep to refetch state that may have been missed during
+   * the outage (e.g. /alerts to reconcile triggers).
+   */
+  reconnects: number;
+}
+
+type Listener = (s: LiveSnapshot) => void;
 type AlertListener = (a: AlertEvent) => void;
 
 let priceState: Record<string, Quote> = {};
 let connectedState = false;
+let downSince: number | null = null;
+let reconnects = 0;
+let reconnectAttempts = 0;
+let backoffTimer: number | null = null;
 const stateListeners = new Set<Listener>();
 const alertListeners = new Set<AlertListener>();
 
@@ -73,8 +90,27 @@ function hasSeenAlert(id: string): boolean {
 }
 
 function notifyState() {
-  const snapshot = { quotes: priceState, connected: connectedState };
+  const snapshot: LiveSnapshot = {
+    quotes: priceState,
+    connected: connectedState,
+    downSince,
+    reconnects,
+  };
   for (const l of stateListeners) l(snapshot);
+}
+
+// scheduleReconnect kicks off an exponential backoff retry chain when the
+// socket drops while listeners are still attached. 1s, 2s, 4s, 8s, 16s,
+// 30s cap. Resets to 1s once a fresh `onopen` fires.
+function scheduleReconnect() {
+  if (backoffTimer !== null) return;
+  if (refCount === 0 || !currentToken) return;
+  const delay = Math.min(30_000, 1000 * Math.pow(2, reconnectAttempts));
+  backoffTimer = window.setTimeout(() => {
+    backoffTimer = null;
+    reconnectAttempts++;
+    if (refCount > 0 && currentToken) openSocket(currentToken);
+  }, delay);
 }
 
 function openSocket(token: string) {
@@ -92,19 +128,27 @@ function openSocket(token: string) {
 
   conn.onopen = () => {
     if (ws !== conn) return;
+    const wasDown = downSince !== null;
     connectedState = true;
+    downSince = null;
+    reconnectAttempts = 0;
+    if (wasDown) reconnects++;
     notifyState();
   };
   conn.onclose = () => {
     if (ws !== conn) return;
+    if (connectedState) downSince = Date.now();
     connectedState = false;
     notifyState();
     ws = null;
+    scheduleReconnect();
   };
   conn.onerror = () => {
     if (ws !== conn) return;
+    if (connectedState) downSince = Date.now();
     connectedState = false;
     notifyState();
+    // onclose fires next; that's where the reconnect schedule kicks in.
   };
   conn.onmessage = (ev) => {
     if (ws !== conn) return;
@@ -140,10 +184,20 @@ function detach() {
   // tear down a perfectly good connection.
   closeTimer = window.setTimeout(() => {
     closeTimer = null;
-    if (refCount === 0 && ws) {
-      ws.close();
-      ws = null;
+    if (refCount === 0) {
+      // No more listeners — also stop any pending reconnect attempt so
+      // a hidden tab doesn't keep reconnecting forever.
+      if (backoffTimer !== null) {
+        clearTimeout(backoffTimer);
+        backoffTimer = null;
+      }
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
       currentToken = null;
+      reconnectAttempts = 0;
+      downSince = null;
     }
   }, 1000);
 }
@@ -154,11 +208,13 @@ function detach() {
  * returned `quotes` map; alert.triggered events fire a toast and push into
  * the alert-event store.
  */
-export function useLivePrices() {
+export function useLivePrices(): LiveSnapshot {
   const token = useAuth((s) => s.accessToken);
-  const [snapshot, setSnapshot] = useState({
+  const [snapshot, setSnapshot] = useState<LiveSnapshot>({
     quotes: priceState,
     connected: connectedState,
+    downSince,
+    reconnects,
   });
   const pushAlert = useAlertEvents((s) => s.push);
   const { push: pushToast } = useToast();
@@ -183,7 +239,12 @@ export function useLivePrices() {
     alertListeners.add(alertListener);
     // Sync initial state in case the singleton was already populated by an
     // earlier hook caller before this component mounted.
-    setSnapshot({ quotes: priceState, connected: connectedState });
+    setSnapshot({
+      quotes: priceState,
+      connected: connectedState,
+      downSince,
+      reconnects,
+    });
 
     return () => {
       stateListeners.delete(stateListener);

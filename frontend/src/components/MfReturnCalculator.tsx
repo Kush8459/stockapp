@@ -229,7 +229,7 @@ function ModeBtn({
       onClick={onClick}
       className={cn(
         "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors",
-        active ? "bg-white/10 text-fg" : "text-fg-muted hover:text-fg",
+        active ? "bg-overlay/10 text-fg" : "text-fg-muted hover:text-fg",
       )}
     >
       {icon}

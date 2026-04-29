@@ -10,20 +10,20 @@ process later with no API change.
 ```
 ┌─────────────────────────────────┐  REST/WS   ┌──────────────────────────────┐
 │  React (Vite + TS)              │ ─────────▶│  Go HTTP API                  │
-│  · dashboard, holdings,         │            │  · user, portfolio, txn,      │
-│    watchlist, sectors,          │            │    pnl, sip, alert, tax,      │
-│    stocks browse, mutual        │            │    news, insights,            │
-│    funds browse + detail,       │◀─────────  │    watchlist, dividend,       │
-│    stock detail (chart +        │   prices   │    market, sectors,           │
-│    fundamentals + financials)   │            │    fundamentals, indices,     │
-│  · 100 ms-coalesced ticks       │            │    mf, stocks                 │
-└────────────┬────────────────────┘            │  · WebSocket hub              │
-             ▲                                  └──────────┬────────────────────┘
-             │ on connect                                  │
-             │                                             ▼
+│  · dashboard hero · holdings    │            │  · user · portfolio · txn    │
+│    hero · stock-detail ribbon   │            │  · pnl · sip · alert · tax   │
+│  · stocks/funds browse          │            │  · news · watchlist · div    │
+│  · MF detail + heatmap          │            │  · market · sectors · indices│
+│  · profile (10 tabs)            │            │  · fundamentals · mf · stocks│
+│  · light/dark theme             │◀─────────  │  · wallet · goal · metrics   │
+│  · 100 ms-coalesced ticks       │   prices   │  · WebSocket hub             │
+│  · WS auto-reconnect (1→30s)    │            │  · /metrics (Prometheus)     │
+└────────────┬────────────────────┘            └──────────┬───────────────────┘
+             ▲                                             │
+             │ on connect                                  ▼
              │                                    ┌────────────────────┐
              │                                    │  PostgreSQL 15     │
-             │                                    │  · users / port    │
+             │                                    │  · users / port.   │
              │                                    │  · transactions    │
              │                                    │  · ledger_entries  │
              │                                    │  · audit_log       │
@@ -31,6 +31,9 @@ process later with no API change.
              │                                    │  · dividends       │
              │                                    │  · sip_plans       │
              │                                    │  · price_alerts    │
+             │                                    │  · wallets         │
+             │                                    │  · wallet_txns     │
+             │                                    │  · goals           │
              │                                    └────────────────────┘
              │                                              ▲
              │                                              │  (worker discovers
@@ -39,9 +42,15 @@ process later with no API change.
 ┌────────────┴────────────────────┐         ┌───────────────┴────────────────┐
 │  Redis 7                        │◀────────┤  Go price worker               │
 │  · price:<TICKER>     SET       │         │  · mock | yahoo+mfapi |        │
-│  · price:hist:<TICKER> LIST     │         │    upstox v3 WS               │
-│  · prices:stream      PUB/SUB   │         │  · dynamic per-user subscribe │
+│  · price:hist:<TICKER> LIST     │         │    upstox v3 WS                │
+│  · prices:stream      PUB/SUB   │         │  · dynamic per-user subscribe  │
 └─────────────────────────────────┘         └────────────────────────────────┘
+
+           ┌─────────────────────────────────────────┐
+           │  Observability (--profile observability)│
+           │  Prometheus  ──scrapes──▶  /metrics     │
+           │   Grafana    ──reads──▶   Prometheus    │
+           └─────────────────────────────────────────┘
 ```
 
 ## Key design choices
@@ -247,16 +256,92 @@ The catalog endpoint paginates with `?offset=&limit=` so the frontend's
 the sort happens before the slice, keeping pagination order stable
 within a session even as prices move.
 
+### Wallet inside the trade transaction
+
+Every trade now writes a wallet movement **inside the same outer
+SERIALIZABLE transaction** as the holdings update and the ledger pair.
+That makes the wallet→holdings→ledger triple atomic under arbitrary
+concurrency:
+
+1. `transaction.Service.Execute` opens a tx at SERIALIZABLE isolation.
+2. `SELECT FOR UPDATE` on the holding row (or no row, on a first buy).
+3. `SELECT FOR UPDATE` on the wallet row via `wallet.ApplyTradeInTx`.
+4. Compute charges (`wallet.ComputeCharges`) + net amount.
+5. Insert the transactions row with brokerage + statutory + net columns.
+6. Insert the wallet_transactions row + bump the wallet balance.
+7. Insert the double-entry ledger pair.
+8. Append `transaction.create` to `audit_log`.
+9. Commit, or roll the whole thing back.
+
+`ErrInsufficientBalance` from the wallet path bubbles out as a
+`422 insufficient_balance` to the client — the user never sees a partial
+state. SIPs catching this error pause themselves with a `pause_reason`
+column rather than burn audit rows retrying every minute.
+
+### Portfolio time-series replay
+
+The benchmark-comparison chart needs a portfolio value series for any
+range up to "all". Computing this exactly requires walking every
+transaction in order and pricing the running holdings at each day's
+close. `portfolio.Service.TimeSeries`:
+
+1. Pulls every transaction for the portfolio, oldest first.
+2. Pulls 5y EOD candles for each unique ticker once (Yahoo for stocks,
+   mfapi for MFs) — Redis cached, so a re-render is one query each.
+3. Builds `ticker → date → close` maps, plus a sorted-dates index for
+   "last close on or before D" lookups (handles weekends and holidays).
+4. Walks weekdays from the first transaction to today; on each day,
+   applies trades executed on or before, then `Σ units × close-on-date`.
+5. Trims to the requested range before returning, but the replay always
+   starts from the first transaction so cost basis is accurate.
+
+Tickers with no candle data fall back to the user's avg buy price so a
+fund with missing-data doesn't drag the line to zero — honest, but
+soft.
+
+### Multi-portfolio without a DB column
+
+The `portfolios` table already supported `(user_id, name)` uniqueness.
+The active-portfolio selection lives **client-side only** — a zustand
+store persisted in localStorage. The clever bit: `usePortfolios()`
+reorders its result so the active portfolio sits at index 0, which
+means every existing `portfolios.data?.[0]` callsite (11 of them) picks
+up the user's selection without any further wiring. One source of truth
+on the client; no schema migration; no extra column to keep in sync.
+
+The audit-trail-safe `DELETE /portfolios/{id}` refuses to drop a
+portfolio that has any transactions (cascading would silently destroy
+the ledger). It also refuses to leave the user with zero portfolios.
+SIPs and holdings cascade via FK.
+
+### Observability is opt-in
+
+Metrics live in `internal/metrics`, registered against a custom registry
+so `/metrics` doesn't expose duplicated runtime metrics. The HTTP
+middleware uses chi's matched route pattern (`/portfolios/{id}`) as the
+label, not the raw URL — keeps cardinality bounded across UUIDs.
+
+Prometheus + Grafana are gated behind `--profile observability` so they
+don't run in the default dev loop. `make obs-up` brings them up; they
+scrape the natively-running API via `host.docker.internal:host-gateway`.
+The Grafana dashboard is provisioned from `infra/grafana/dashboards/`,
+auto-loaded on first start.
+
+The interview-grade panel is **trade execute latency** — the histogram
+covers the SERIALIZABLE path including the FOR UPDATE wait, so a screen
+of p99 over time tells the story of "what does contention look like
+under load".
+
 ## What's deferred
 
 | Feature            | Why deferred                                                  |
 |--------------------|---------------------------------------------------------------|
 | Kafka event bus    | In-process pub/sub is enough for one node                     |
 | Polygon ingestion  | Needs API key; Upstox v3 WS already covers Indian equities    |
-| Multi-portfolio UI | Schema supports it; UI is single-portfolio for now            |
-| Benchmark compare  | NIFTY 50 chart overlay on holdings — Phase F+                 |
-| OpenTelemetry      | Add `otel` middleware to `httpx`; Jaeger in docker-compose    |
+| OpenTelemetry traces | Prometheus metrics in; OTel traces would surface the FOR UPDATE wait per-trade |
 | Per-user WS filter | Currently broadcasts every ticker; coalescing buffer mitigates|
+| Idempotency keys   | `Idempotency-Key` header → Redis dedupe table is half-day work|
+| Limit orders       | Only `market` side today; an in-process matcher is on the list|
 
 ## Extraction path
 

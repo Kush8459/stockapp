@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 
 	"github.com/stockapp/backend/internal/price"
@@ -14,16 +15,45 @@ import (
 type Service struct {
 	repo   *Repo
 	prices *price.Cache
+	// rdb is the Redis client used by the time-series builder to fetch
+	// historical candles for portfolio replay. Nil-tolerant: if not wired,
+	// the time-series falls back to avg-buy prices for unknown tickers.
+	rdb *redis.Client
 }
 
-func NewService(db *pgxpool.Pool, prices *price.Cache) *Service {
-	return &Service{repo: NewRepo(db), prices: prices}
+func NewService(db *pgxpool.Pool, prices *price.Cache, rdb *redis.Client) *Service {
+	return &Service{repo: NewRepo(db), prices: prices, rdb: rdb}
 }
 
 // CreateDefault satisfies user.portfolioCreator.
 func (s *Service) CreateDefault(ctx context.Context, userID uuid.UUID, name string) error {
 	_, err := s.repo.Create(ctx, userID, name, "INR")
 	return err
+}
+
+// Create makes a new named portfolio for the user (called from the UI's
+// "+ New portfolio" affordance). Currency is locked to INR for this build.
+func (s *Service) Create(ctx context.Context, userID uuid.UUID, name string) (*Portfolio, error) {
+	return s.repo.Create(ctx, userID, name, "INR")
+}
+
+// Rename changes the portfolio's display name.
+func (s *Service) Rename(ctx context.Context, userID, id uuid.UUID, name string) (*Portfolio, error) {
+	return s.repo.Rename(ctx, userID, id, name)
+}
+
+// Delete removes a portfolio. Refuses if it would leave the user with zero
+// portfolios (we always keep at least one) or if any transactions still
+// point at it. SIPs and holdings cascade via FK.
+func (s *Service) Delete(ctx context.Context, userID, id uuid.UUID) error {
+	count, err := s.repo.CountByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if count <= 1 {
+		return ErrPortfolioBusy
+	}
+	return s.repo.Delete(ctx, userID, id)
 }
 
 func (s *Service) List(ctx context.Context, userID uuid.UUID) ([]Portfolio, error) {

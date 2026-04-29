@@ -129,7 +129,7 @@ export function TickerSearchPicker({
             type="button"
             aria-label="Toggle suggestions"
             onClick={() => setOpen((o) => !o)}
-            className="rounded p-1 text-fg-subtle hover:bg-white/5 hover:text-fg"
+            className="rounded p-1 text-fg-subtle hover:bg-overlay/5 hover:text-fg"
           >
             <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
           </button>
@@ -162,7 +162,7 @@ export function TickerSearchPicker({
                   }}
                   className={cn(
                     "flex cursor-pointer items-center gap-3 border-b border-border/40 px-4 py-2.5 last:border-0",
-                    i === activeIdx && "bg-white/[0.05]",
+                    i === activeIdx && "bg-overlay/[0.05]",
                   )}
                 >
                   <span

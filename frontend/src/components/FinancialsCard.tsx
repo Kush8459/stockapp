@@ -23,6 +23,7 @@ import {
   type Fundamentals,
   type YearlyFinancials,
 } from "@/hooks/useFundamentals";
+import { useChartTheme } from "@/hooks/useChartTheme";
 import { cn, formatCompact } from "@/lib/utils";
 
 interface Props {
@@ -86,6 +87,7 @@ const tabMeta: Record<
 
 export function FinancialsCard({ ticker }: Props) {
   const { data, isLoading } = useFundamentals(ticker);
+  const chartTheme = useChartTheme();
   const [tab, setTab] = useState<Tab>("income");
   const [period, setPeriod] = useState<Period>("yearly");
   const [selected, setSelected] = useState<Record<Tab, string[]>>({
@@ -319,15 +321,15 @@ export function FinancialsCard({ ticker }: Props) {
               ) : (
                 <ResponsiveContainer>
                   <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1c2431" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.border} vertical={false} />
                     <XAxis
                       dataKey="label"
-                      tick={{ fill: "#94a3b8", fontSize: 11 }}
+                      tick={{ fill: chartTheme.fgMuted, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                     />
                     <YAxis
-                      tick={{ fill: "#94a3b8", fontSize: 10 }}
+                      tick={{ fill: chartTheme.fgMuted, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => formatCompact(v)}
@@ -335,8 +337,9 @@ export function FinancialsCard({ ticker }: Props) {
                     />
                     <Tooltip
                       contentStyle={{
-                        background: "#141b26",
-                        border: "1px solid #1c2431",
+                        background: chartTheme.bgSoft,
+                        border: `1px solid ${chartTheme.border}`,
+                        color: chartTheme.fg,
                         borderRadius: 8,
                         fontSize: 12,
                         padding: "8px 12px",
@@ -345,7 +348,7 @@ export function FinancialsCard({ ticker }: Props) {
                         formatCompact(value),
                         labelFor(metricsForTab, name),
                       ]}
-                      cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                      cursor={{ fill: `${chartTheme.fg}0a` }}
                     />
                     <Legend
                       wrapperStyle={{ fontSize: 11 }}
@@ -496,7 +499,7 @@ function PeriodToggle({
         disabled={!yearlyAvail}
         className={cn(
           "rounded px-2.5 py-1 font-medium transition-colors disabled:opacity-40",
-          value === "yearly" ? "bg-white/10 text-fg" : "text-fg-muted hover:text-fg",
+          value === "yearly" ? "bg-overlay/10 text-fg" : "text-fg-muted hover:text-fg",
         )}
       >
         Yearly
@@ -507,7 +510,7 @@ function PeriodToggle({
         disabled={!quarterlyAvail}
         className={cn(
           "rounded px-2.5 py-1 font-medium transition-colors disabled:opacity-40",
-          value === "quarterly" ? "bg-white/10 text-fg" : "text-fg-muted hover:text-fg",
+          value === "quarterly" ? "bg-overlay/10 text-fg" : "text-fg-muted hover:text-fg",
         )}
       >
         Quarterly

@@ -28,7 +28,7 @@ Fly.io, Hetzner, AWS), see [`docs/deployment.md`](docs/deployment.md).
 |---|---|
 | ![Dashboard](docs/screenshots/dashboard.png) **Dashboard** — summary cards, day change, sector heatmap, top movers | ![Holdings](docs/screenshots/holdings.png) **Holdings** — per-ticker XIRR, allocation donut |
 | ![Stock detail](docs/screenshots/stock-detail.png) **Stock detail** — fundamentals, financials, candles | ![Watchlist](docs/screenshots/watchlist.png) **Watchlist** — multi-list, live ticks |
-| ![Tax](docs/screenshots/tax.png) **Tax** — LTCG / STCG by FY, CSV export | ![AI review](docs/screenshots/insights.png) **AI review** — Gemini-generated portfolio analysis |
+| ![Tax](docs/screenshots/tax.png) **Tax** — LTCG / STCG by FY, CSV export | ![Wallet](docs/screenshots/wallet.png) **Wallet** — paper-trading cash with real charges + multi-portfolio + goals |
 
 ---
 
@@ -83,8 +83,26 @@ Fly.io, Hetzner, AWS), see [`docs/deployment.md`](docs/deployment.md).
 - **Price alerts** — trigger engine consumes the price stream; user-scoped
   WebSocket fan-out so only you see your alerts
 - **Tax P&L report** — FIFO lot matching, STCG / LTCG per Indian FY
-- **AI review** — Gemini-powered portfolio analysis with structured output
-  (sub-scores, highlights, strengths, risks, suggestions, next steps)
+- **Wallet system** — every user gets a real INR cash account seeded with
+  ₹1,00,000. Buys debit the wallet (price × qty + Zerodha-style brokerage
+  capped at ₹20 + statutory + 18% GST); sells credit net proceeds. Deposit
+  / withdraw via mocked UPI / net banking / card. SIPs auto-pause when the
+  wallet runs dry; the UI surfaces a one-click "Top up" CTA.
+- **Multi-portfolio + goals** — portfolio switcher in the topbar (create /
+  rename / delete with audit-trail-safe refusal); Goals tab with target
+  corpus + deadline + on-track verdict that projects current XIRR forward
+- **Benchmark comparison** — overlay the user's portfolio vs NIFTY 50 /
+  SENSEX / BANK NIFTY / NIFTY IT / NIFTY MIDCAP, normalized to 100 at
+  start, with an **Alpha pill** that answers "did I beat the market?"
+- **Light + dark mode** — CSS-variable-driven theme with pre-paint script
+  so the page never flashes the wrong colors; sun/moon toggle in the
+  sidebar
+- **WebSocket resilience** — exponential-backoff reconnect (1s → 30s),
+  banner when down >5s, alerts/holdings refetched on reconnect to
+  reconcile missed events
+- **Observability** — Prometheus `/metrics` endpoint with trade rate /
+  failure-by-reason / SERIALIZABLE-path latency / wallet movements /
+  WS fan-out; Grafana dashboard auto-provisioned via `make obs-up`
 - **News feed** — per-ticker headlines with keyword-based sentiment
 - **Global ticker search** — Upstox local index first (9 k tickers in
   RAM); Yahoo fallback for anything missing
@@ -203,18 +221,20 @@ Full deployment guide with Railway, Fly.io, and VPS walk-throughs:
 │   │   ├── stocks/           # /stocks browse — categories + paginated catalog
 │   │   ├── mf/               # AMFI directory (mfapi.in) — catalog, returns, metrics
 │   │   ├── news/             # NewsAPI integration with Redis cache
-│   │   ├── insights/         # Gemini-powered AI review
+│   │   ├── wallet/           # cash account, charges (brokerage + statutory + GST), deposit/withdraw, atomic ApplyTradeInTx
+│   │   ├── goal/             # savings goals (target corpus + deadline + on-track verdict)
+│   │   ├── metrics/          # Prometheus client + HTTP middleware
 │   │   └── tax/              # FIFO tax-lot matching + STCG/LTCG (Indian post-Jul-2024 rates)
 │   ├── migrations/           # golang-migrate SQL files
 │   ├── Dockerfile            # multi-stage → distroless
 │   └── go.mod
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/            # Dashboard, Holdings, Watchlist, Stocks, MutualFunds, MutualFundDetail, StockDetail, SectorDetail, Transactions*, Alerts, Sips, Tax, Login, Register
-│   │   ├── components/       # AppShell, MarketContextBar, MarketStatusBar, SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard, EventsCard, DividendsCard, WatchlistPopover, HoldingsTable, TradeDialog, AlertForm, AiInsights, NewsFeed, MfInvestDialog, MfMetricsCard, MfReturnCalculator, MfSearchPicker, MfSimilarFunds, SipEditDialog, TickerSearchPicker, …
-│   │   ├── hooks/            # TanStack Query hooks + useLivePrices (100 ms coalesce) + useInfiniteScroll + useDebounce
-│   │   ├── store/            # Zustand (auth, alertEvents)
-│   │   └── lib/              # api client, utils, csv
+│   │   ├── pages/            # Dashboard, Holdings, Watchlist, Stocks, MutualFunds, MutualFundDetail, StockDetail, SectorDetail, Transactions*, Alerts, Sips, Tax, Profile, Login, Register
+│   │   ├── components/       # AppShell, ConnectionBanner, PortfolioSwitcher, DashboardHero, HoldingsHero, StockHero, BenchmarkChart, OnboardingCard, MarketContextBar, MarketStatusBar, SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard, EventsCard, DividendsCard, WatchlistPopover, HoldingsTable, TradeDialog, AlertForm, NewsFeed, WalletDialog, MfInvestDialog, MfRedeemDialog, MfMetricsCard, MfReturnCalculator, MfSearchPicker, MfSimilarFunds, SipEditDialog, TickerSearchPicker, …
+│   │   ├── hooks/            # TanStack Query hooks + useLivePrices (100 ms coalesce, auto-reconnect) + useWallet + useGoals + usePortfolioTimeseries + useChartTheme + useInfiniteScroll + useDebounce
+│   │   ├── store/            # Zustand (auth, theme, activePortfolio, alertEvents)
+│   │   └── lib/              # api client, utils, csv, charges
 │   ├── Dockerfile            # multi-stage → nginx
 │   └── nginx.conf
 ├── docs/                     # every guide listed above

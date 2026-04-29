@@ -118,7 +118,7 @@ export function TransactionsPage() {
                 className={cn(
                   "px-3 py-1.5 text-xs font-medium capitalize transition-colors",
                   sideFilter === s
-                    ? "rounded-md bg-white/10 text-fg"
+                    ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
                 )}
               >
@@ -135,12 +135,12 @@ export function TransactionsPage() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium capitalize transition-colors",
                   sourceFilter === s
-                    ? "rounded-md bg-white/10 text-fg"
+                    ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
                 )}
               >
                 {s}
-                <span className="num rounded-full bg-white/5 px-1.5 text-[10px]">
+                <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
                   {sourceCounts[s] ?? 0}
                 </span>
               </button>
@@ -157,8 +157,56 @@ export function TransactionsPage() {
             No transactions match your filters.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <>
+            {/* Mobile: stacked card list. The full table is dense — it's
+                hidden under md and shown as cards instead. */}
+            <ul className="divide-y divide-border/40 md:hidden">
+              {rows.map((t) => {
+                const isBuy = t.side === "buy";
+                const total = toNum(t.totalAmount);
+                const qty = toNum(t.quantity);
+                const price = toNum(t.price);
+                const when = new Date(t.executedAt);
+                return (
+                  <li
+                    key={t.id}
+                    onClick={() => navigate(`/transactions/${t.id}`)}
+                    className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-overlay/[0.04]"
+                  >
+                    <span
+                      className={cn(
+                        "chip text-[10px] capitalize",
+                        isBuy
+                          ? "border-success/30 text-success"
+                          : "border-danger/30 text-danger",
+                      )}
+                    >
+                      {t.side}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {t.ticker}
+                      </div>
+                      <div className="num text-[11px] text-fg-muted">
+                        {qty.toLocaleString()} × {formatCurrency(price)} ·{" "}
+                        {when.toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "2-digit",
+                        })}
+                      </div>
+                    </div>
+                    <div className="num text-sm font-medium">
+                      {formatCurrency(total)}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Desktop: full table with all columns. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-wider text-fg-muted">
                 <tr className="border-b border-border/80">
                   <th className="px-4 py-3 text-left font-medium">When</th>
@@ -185,7 +233,8 @@ export function TransactionsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -210,7 +259,7 @@ function Row({
       animate={{ opacity: 1 }}
       transition={{ delay: Math.min(index, 20) * 0.01 }}
       onClick={onOpen}
-      className="group cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-white/[0.04]"
+      className="group cursor-pointer border-b border-border/40 transition-colors last:border-0 hover:bg-overlay/[0.04]"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {

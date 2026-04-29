@@ -120,6 +120,55 @@ Holdings enriched with live prices and computed P&L.
 }
 ```
 
+### `POST /api/v1/portfolios`
+
+Create a new named portfolio for the user. Currency is locked to INR.
+
+```json
+{ "name": "Retirement" }
+```
+
+→ `201 Created` with the new `Portfolio` object. `409 name_taken` if the
+user already has a portfolio by that name.
+
+### `PATCH /api/v1/portfolios/:id`
+
+Rename a portfolio.
+
+```json
+{ "name": "Tax saving" }
+```
+
+→ `200 OK` with the updated `Portfolio` object. `409 name_taken` on dup.
+
+### `DELETE /api/v1/portfolios/:id`
+
+Delete a portfolio. **Refuses** with `409 portfolio_busy` if any
+transaction still references it (audit trail is immutable) or if it
+would leave the user with zero portfolios.
+
+→ `204 No Content` on success.
+
+### `GET /api/v1/portfolios/:id/timeseries?range=1m|3m|6m|1y|5y|all`
+
+Daily portfolio-value series replayed from the user's transactions.
+Powers the dashboard's benchmark-comparison chart. Walks weekdays from
+the first transaction to today, applies trades on/before each day,
+prices remaining holdings at that day's EOD close (5y candle cache).
+
+```json
+{
+  "points": [
+    { "time": 1704067200, "value": "12500.00", "invested": "12000.00" },
+    { "time": 1704153600, "value": "12750.50", "invested": "12000.00" }
+  ],
+  "firstTxnDate": "2024-01-01T09:30:00Z",
+  "range": "1y",
+  "startValue": "12500.00",
+  "startInvested": "12000.00"
+}
+```
+
 ---
 
 ## Transactions
@@ -142,7 +191,22 @@ Execute a buy or sell. Returns 201 with the written `Transaction` row.
 ```
 
 422 `insufficient_quantity` on a sell > available. 422 `no_position` on a
-sell against a ticker you don't hold. 403 if the portfolio isn't yours.
+sell against a ticker you don't hold. 422 `insufficient_balance` on a
+buy whose net debit exceeds the wallet balance. 403 if the portfolio
+isn't yours.
+
+The transaction is recorded with the broker-style charges breakdown:
+
+- `brokerage` — 0.1% × turnover, capped at ₹20 per leg (stocks); ₹0 for MFs
+- `statutory_charges` — 0.1% on sell side / 0.015% on buy side + 18% GST on
+  brokerage (stocks); ₹0 for MFs
+- `net_amount` — what hit the wallet:
+  - buy: `qty × price + brokerage + statutory_charges` (debit)
+  - sell: `qty × price − brokerage − statutory_charges` (credit)
+
+The wallet row is written inside the same SERIALIZABLE outer transaction
+as the holding update, so a successful trade can never desynchronise from
+the wallet balance.
 
 ### `GET /api/v1/transactions?limit=N`
 
@@ -155,7 +219,9 @@ Lists user's transactions (default `limit=50`, max 500).
       "id": "uuid", "userId": "uuid", "portfolioId": "uuid",
       "ticker": "RELIANCE", "assetType": "stock",
       "side": "buy", "quantity": "1", "price": "2481.23",
-      "totalAmount": "2486.23", "fees": "5", "note": null,
+      "totalAmount": "2486.23", "fees": "0",
+      "brokerage": "2.48", "statutory": "0.81", "netAmount": "2484.52",
+      "note": null,
       "source": "manual", "sourceId": null,
       "executedAt": "…"
     }
@@ -856,39 +922,6 @@ Per-ticker news with keyword sentiment. 503 `news_disabled` if
 
 ---
 
-## AI Insights
-
-### `GET /api/v1/insights`
-
-Cached-or-fresh AI review. 503 `insights_disabled` when `GEMINI_API_KEY`
-isn't set, 502 `insights_upstream` on provider failure after retries + fallback.
-
-```json
-{
-  "executiveSummary": "…",
-  "healthScore": { "overall": 78, "label": "Good", "diversification": 65, "riskManagement": 72, "performance": 85, "discipline": 70 },
-  "keyHighlights": {
-    "topPerformer": { "ticker": "RELIANCE", "value": "+18.5%", "note": "…" },
-    "topLaggard": { ... },
-    "biggestPosition": { ... },
-    "fastestMover": { ... }
-  },
-  "analysis": { "allocation": "…", "concentration": "…", "performance": "…", "discipline": "…" },
-  "strengths": [ { "title": "…", "detail": "…" } ],
-  "risks": [ { "title": "…", "detail": "…", "severity": "high" } ],
-  "suggestions": [ { "title": "…", "detail": "…", "priority": "high", "category": "rebalance" } ],
-  "nextSteps": [ "…", "…" ],
-  "generatedAt": "…", "model": "gemini-2.5-flash", "cached": false,
-  "input": { "holdings": 9, "transactions": 8, "sips": 0 }
-}
-```
-
-### `POST /api/v1/insights/refresh`
-
-Forces regeneration (bypasses the 30-min cache). Same response shape.
-
----
-
 ## Tax
 
 ### `GET /api/v1/tax/summary`
@@ -957,17 +990,120 @@ buffer so the UI doesn't thrash with 500+ tickers ticking at once.
 
 ---
 
+## Wallet
+
+All endpoints require auth. The wallet is a real INR cash account: trades
+debit/credit it inside the SERIALIZABLE outer transaction, deposits and
+withdrawals are user-driven (mock UPI / bank / card).
+
+### `GET /api/v1/wallet`
+
+Lazily creates the wallet (with the ₹1,00,000 seed) if it doesn't yet
+exist, so any caller can assume one is available.
+
+```json
+{
+  "id": "uuid", "userId": "uuid",
+  "balance": "100000.00", "currency": "INR",
+  "createdAt": "…", "updatedAt": "…"
+}
+```
+
+### `POST /api/v1/wallet/deposit`
+
+```json
+{ "amount": "5000", "method": "upi", "reference": "UPI", "note": "" }
+```
+
+`method` ∈ {`upi`, `bank`, `card`} (`bonus` is reserved for the signup
+seed and rejected here). `400 bad_amount` on non-positive amount,
+`400 bad_method` on anything else.
+
+→ `201` with `{ "movement": Movement, "balanceAfter": "…" }`.
+
+### `POST /api/v1/wallet/withdraw`
+
+Same body shape as deposit. `422 insufficient_balance` when amount > balance.
+
+### `GET /api/v1/wallet/transactions?limit=50`
+
+Wallet movements newest-first.
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid", "walletId": "uuid", "userId": "uuid",
+      "kind": "buy",
+      "amount": "-2484.52",
+      "balanceAfter": "97515.48",
+      "method": null,
+      "reference": null,
+      "transactionId": "uuid",
+      "note": "buy RELIANCE × 1 @ 2481.23",
+      "createdAt": "…"
+    }
+  ]
+}
+```
+
+`kind` ∈ {`deposit`, `withdraw`, `buy`, `sell`, `charge`, `refund`}.
+Trade-side rows reference the originating `transactions.id`.
+
+---
+
+## Goals
+
+| Method · Path | What |
+|---|---|
+| `GET /api/v1/goals` | List all goals for the user, soonest-deadline first |
+| `POST /api/v1/goals` | Create a goal |
+| `PATCH /api/v1/goals/:id` | Partial update — any subset of fields |
+| `DELETE /api/v1/goals/:id` | Delete |
+
+**Goal shape:**
+
+```json
+{
+  "id": "uuid", "userId": "uuid", "portfolioId": "uuid",
+  "name": "House down payment",
+  "targetAmount": "5000000.00",
+  "targetDate": "2030-04-01T00:00:00Z",
+  "bucket": "Custom",
+  "note": "₹50L by 2030 for a flat in Pune",
+  "createdAt": "…", "updatedAt": "…"
+}
+```
+
+Create body:
+
+```json
+{
+  "portfolioId": "uuid",
+  "name": "Retirement",
+  "targetAmount": "10000000",
+  "targetDate": "2050-01-01",
+  "bucket": "Retirement",
+  "note": ""
+}
+```
+
+`targetAmount` must be positive; `targetDate` must be `YYYY-MM-DD` and
+in the future. The on-track verdict (UI-side) projects the user's current
+portfolio value forward at their XIRR.
+
+---
+
 ## Status / error codes used
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `bad_request`, `bad_json`, `bad_ticker`, `bad_side`, `bad_qty`, `bad_price`, etc. | Malformed input |
+| 400 | `bad_request`, `bad_json`, `bad_ticker`, `bad_side`, `bad_qty`, `bad_price`, `bad_amount`, `bad_method`, etc. | Malformed input |
 | 401 | `unauthorized`, `invalid_credentials` | Missing/invalid token or wrong password |
 | 403 | `forbidden` | Logged in but not authorized for this resource |
 | 404 | `not_found` | Resource doesn't exist or isn't yours |
-| 409 | `email_taken`, `conflict` | Uniqueness violation |
-| 422 | `insufficient_quantity`, `no_position` | Semantically invalid trade |
+| 409 | `email_taken`, `name_taken`, `portfolio_busy` | Uniqueness violation / can't delete |
+| 422 | `insufficient_quantity`, `no_position`, `insufficient_balance` | Semantically invalid trade |
 | 429 | (handled upstream) | Upstream rate limit |
 | 500 | `internal` | Unhandled; check server logs |
-| 502 | `insights_upstream` | AI provider failed after retries |
-| 503 | `news_disabled`, `insights_disabled` | Optional feature not configured on the server |
+| 503 | `news_disabled` | Optional feature not configured on the server |

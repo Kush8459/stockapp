@@ -369,34 +369,44 @@ Rebuild the API.
 
 ---
 
-## AI Insights (Gemini)
+## Wallet / SIPs / migrations
 
-### 503 `insights_disabled`
+### `column "pause_reason" does not exist (SQLSTATE 42703)` once a minute in logs
 
-No `GEMINI_API_KEY` in `.env`. Get a free key at
-https://aistudio.google.com/app/apikey and add:
-
-```
-GEMINI_API_KEY=AIzaSy...
-```
-
-Restart.
-
-### 502 `insights_upstream` with Gemini 503 / 429 in logs
-
-Gemini rate limit or model overload. Fixed with:
-
-1. **Automatic retry** with exponential backoff (4 attempts, ~11 s).
-2. **Automatic model fallback** to `gemini-2.0-flash` — dramatically
-   higher free-tier quota.
-
-If it still fails: force 2.0 Flash as primary:
+The SIP scheduler is running, but `migrations/000008_sip_pause_reason.up.sql`
+hasn't been applied. Run:
 
 ```
-GEMINI_MODEL=gemini-2.0-flash
+make migrate-up
 ```
 
-Restart.
+After it applies, the warning stops and the SIP auto-pause-on-low-balance
+flow becomes functional.
+
+### `relation "wallets" does not exist`
+
+Same fix — `migrations/000007_wallet.up.sql` introduced the wallet
+schema. `make migrate-up` brings everything up to date in order.
+
+### Trade returns `422 insufficient_balance`
+
+Working as designed. Buys debit the wallet (qty × price + brokerage +
+statutory + GST). Top up via `POST /api/v1/wallet/deposit` or the Add
+funds button in the sidebar. The seed bonus is ₹1,00,000.
+
+### Existing user shows ₹0 wallet balance after the wallet migration
+
+The migration backfills every row in `users` with a ₹1,00,000 deposit.
+If a user is missing one, check that `EnsureForUser` is being called
+(it's invoked lazily on the first `GET /wallet`). Worst case, trigger
+it by hitting `/api/v1/wallet` while authenticated as that user.
+
+### Existing SIP is paused with a "Low wallet balance" badge
+
+The scheduler tried to debit the wallet at SIP-run time and got
+`ErrInsufficientBalance`. The plan flipped to `paused` with
+`pause_reason = 'insufficient_balance'`. Top up the wallet then resume
+the SIP from the Sips page (resume clears `pause_reason` automatically).
 
 ---
 

@@ -18,6 +18,8 @@ import {
 import { useDebounce } from "@/hooks/useDebounce";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 import { useLivePrices } from "@/hooks/useLivePrices";
+import { useHoldings, usePortfolios } from "@/hooks/usePortfolio";
+import { useSips } from "@/hooks/useSips";
 import { MfInvestDialog } from "@/components/MfInvestDialog";
 import { cn, formatCurrency, toNum } from "@/lib/utils";
 
@@ -83,6 +85,29 @@ export function MutualFundsPage() {
 
   const [investing, setInvesting] = useState<MfFund | null>(null);
   const [investMode, setInvestMode] = useState<"lumpsum" | "sip">("lumpsum");
+
+  // User-context: which catalog rows is the user already invested in?
+  // Powers the "Owned" / "SIP" badge — a signal generic MF browsers don't have.
+  const portfolios = usePortfolios();
+  const portfolio = portfolios.data?.[0];
+  const holdings = useHoldings(portfolio?.id);
+  const sips = useSips();
+  const userContext = useMemo(() => {
+    const owned = new Map<string, number>();
+    for (const h of holdings.data ?? []) {
+      const q = toNum(h.quantity);
+      if (q > 0) owned.set(h.ticker, q);
+    }
+    const sipMap = new Map<string, { amount: number; frequency: string }>();
+    for (const s of sips.data ?? []) {
+      if (s.status !== "active") continue;
+      sipMap.set(s.ticker, {
+        amount: toNum(s.amount),
+        frequency: s.frequency,
+      });
+    }
+    return { owned, sipMap };
+  }, [holdings.data, sips.data]);
 
   const totalCount = cats.data?.reduce((s, c) => s + c.count, 0) ?? 0;
 
@@ -167,6 +192,8 @@ export function MutualFundsPage() {
                 key={f.ticker}
                 fund={f}
                 index={i}
+                ownedUnits={userContext.owned.get(f.ticker)}
+                activeSip={userContext.sipMap.get(f.ticker)}
                 onLumpsum={() => {
                   setInvestMode("lumpsum");
                   setInvesting(f);
@@ -230,7 +257,7 @@ function CategoryChip({
       )}
     >
       <span>{label}</span>
-      <span className="num rounded-full bg-white/5 px-1.5 text-[10px]">
+      <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
         {count.toLocaleString("en-IN")}
       </span>
     </button>
@@ -240,16 +267,22 @@ function CategoryChip({
 function FundCard({
   fund,
   index,
+  ownedUnits,
+  activeSip,
   onLumpsum,
   onSip,
 }: {
   fund: MfFund;
   index: number;
+  ownedUnits?: number;
+  activeSip?: { amount: number; frequency: string };
   onLumpsum: () => void;
   onSip: () => void;
 }) {
   const nav = fund.nav ? toNum(fund.nav.value) : 0;
   const changePct = fund.nav?.changePct ? toNum(fund.nav.changePct) : null;
+  const isOwned = (ownedUnits ?? 0) > 0;
+  const hasSip = !!activeSip;
 
   return (
     <motion.article
@@ -261,7 +294,7 @@ function FundCard({
       {/* Header — clickable area opens detail page */}
       <Link
         to={`/funds/${fund.ticker}`}
-        className="group flex items-start justify-between gap-3 -m-1 rounded-lg p-1 transition-colors hover:bg-white/[0.02]"
+        className="group flex items-start justify-between gap-3 -m-1 rounded-lg p-1 transition-colors hover:bg-overlay/[0.02]"
       >
         <div className="min-w-0 flex-1">
           <div className="text-[11px] uppercase tracking-wider text-fg-muted">
@@ -302,10 +335,37 @@ function FundCard({
             </div>
           )}
         </div>
-        {fund.nav?.stale && (
-          <span className="text-[10px] text-warn">stale</span>
-        )}
+        <OwnershipBadge
+          isOwned={isOwned}
+          ownedUnits={ownedUnits}
+          nav={nav}
+          activeSip={activeSip}
+          hasSip={hasSip}
+        />
       </div>
+
+      {/* Ownership progress bar — only when user holds units, shows day's
+          P&L direction at a glance. Quietly absent for unowned funds. */}
+      {isOwned && changePct !== null && (
+        <div className="mt-2">
+          <div
+            className={cn(
+              "h-0.5 w-full overflow-hidden rounded-full bg-overlay/5",
+            )}
+          >
+            <div
+              className={cn(
+                "h-full",
+                changePct >= 0 ? "bg-success/80" : "bg-danger/80",
+              )}
+              style={{
+                width: `${Math.min(100, Math.abs(changePct) * 20)}%`,
+                marginLeft: changePct < 0 ? "auto" : 0,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="mt-4 grid grid-cols-2 gap-2">
@@ -331,18 +391,70 @@ function SkeletonGrid() {
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="card animate-pulse p-4">
-          <div className="h-3 w-16 rounded bg-white/5" />
-          <div className="mt-2 h-4 w-3/4 rounded bg-white/5" />
-          <div className="mt-1 h-4 w-1/2 rounded bg-white/5" />
-          <div className="mt-6 h-6 w-24 rounded bg-white/5" />
+          <div className="h-3 w-16 rounded bg-overlay/5" />
+          <div className="mt-2 h-4 w-3/4 rounded bg-overlay/5" />
+          <div className="mt-1 h-4 w-1/2 rounded bg-overlay/5" />
+          <div className="mt-6 h-6 w-24 rounded bg-overlay/5" />
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="h-7 rounded bg-white/5" />
-            <div className="h-7 rounded bg-white/5" />
+            <div className="h-7 rounded bg-overlay/5" />
+            <div className="h-7 rounded bg-overlay/5" />
           </div>
         </div>
       ))}
     </div>
   );
+}
+
+/**
+ * Surfaces the user's relationship to this fund — the one signal a generic
+ * MF browser can't show. We deliberately render nothing when neither
+ * applies (rather than fabricate a star rating or fund score), keeping
+ * the card honest and the visual hierarchy clean.
+ */
+function OwnershipBadge({
+  isOwned,
+  ownedUnits,
+  nav,
+  activeSip,
+  hasSip,
+}: {
+  isOwned: boolean;
+  ownedUnits?: number;
+  nav: number;
+  activeSip?: { amount: number; frequency: string };
+  hasSip: boolean;
+}) {
+  if (isOwned && ownedUnits) {
+    const value = ownedUnits * nav;
+    return (
+      <div className="text-right">
+        <span className="chip border-brand/40 bg-brand/10 text-[10px] text-brand">
+          <Wallet2 className="h-3 w-3" /> Owned
+        </span>
+        {value > 0 && (
+          <div className="num mt-1 text-[11px] text-fg-muted">
+            {formatCurrency(value)}
+          </div>
+        )}
+        <div className="num text-[10px] text-fg-subtle">
+          {ownedUnits.toFixed(2)} units
+        </div>
+      </div>
+    );
+  }
+  if (hasSip && activeSip) {
+    return (
+      <div className="text-right">
+        <span className="chip border-success/30 bg-success/10 text-[10px] text-success">
+          <CalendarClock className="h-3 w-3" /> SIP active
+        </span>
+        <div className="num mt-1 text-[10px] text-fg-muted">
+          {formatCurrency(activeSip.amount)} / {activeSip.frequency === "yearly" ? "yr" : "mo"}
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 function EmptyState({ query, category }: { query: string; category: string }) {

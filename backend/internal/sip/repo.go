@@ -31,13 +31,13 @@ func (r *Repo) Create(ctx context.Context, in CreateInput) (*Plan, error) {
 	const q = `
 		INSERT INTO sip_plans (user_id, portfolio_id, ticker, asset_type, amount, frequency, next_run_at, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-		RETURNING id, user_id, portfolio_id, ticker, asset_type, amount, frequency, next_run_at, status, created_at, updated_at`
+		RETURNING id, user_id, portfolio_id, ticker, asset_type, amount, frequency, next_run_at, status, pause_reason, created_at, updated_at`
 	p := &Plan{}
 	err := r.db.QueryRow(ctx, q,
 		in.UserID, in.PortfolioID, in.Ticker, in.AssetType, in.Amount, in.Frequency, in.FirstRunAt,
 	).Scan(
 		&p.ID, &p.UserID, &p.PortfolioID, &p.Ticker, &p.AssetType, &p.Amount,
-		&p.Frequency, &p.NextRunAt, &p.Status, &p.CreatedAt, &p.UpdatedAt,
+		&p.Frequency, &p.NextRunAt, &p.Status, &p.PauseReason, &p.CreatedAt, &p.UpdatedAt,
 	)
 	return p, err
 }
@@ -45,7 +45,7 @@ func (r *Repo) Create(ctx context.Context, in CreateInput) (*Plan, error) {
 func (r *Repo) ListByUser(ctx context.Context, userID uuid.UUID) ([]Plan, error) {
 	const q = `
 		SELECT id, user_id, portfolio_id, ticker, asset_type, amount, frequency,
-		       next_run_at, status, created_at, updated_at
+		       next_run_at, status, pause_reason, created_at, updated_at
 		FROM sip_plans WHERE user_id = $1
 		ORDER BY (status = 'active') DESC, next_run_at ASC`
 	rows, err := r.db.Query(ctx, q, userID)
@@ -57,7 +57,7 @@ func (r *Repo) ListByUser(ctx context.Context, userID uuid.UUID) ([]Plan, error)
 	for rows.Next() {
 		var p Plan
 		if err := rows.Scan(&p.ID, &p.UserID, &p.PortfolioID, &p.Ticker, &p.AssetType,
-			&p.Amount, &p.Frequency, &p.NextRunAt, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.Amount, &p.Frequency, &p.NextRunAt, &p.Status, &p.PauseReason, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -66,8 +66,14 @@ func (r *Repo) ListByUser(ctx context.Context, userID uuid.UUID) ([]Plan, error)
 }
 
 func (r *Repo) SetStatus(ctx context.Context, userID, id uuid.UUID, status Status) error {
-	cmd, err := r.db.Exec(ctx,
-		`UPDATE sip_plans SET status = $1 WHERE id = $2 AND user_id = $3`,
+	// Resuming clears any auto-pause reason — the user has acknowledged
+	// whatever caused the pause and we shouldn't keep displaying the badge.
+	cmd, err := r.db.Exec(ctx, `
+		UPDATE sip_plans
+		SET status = $1,
+		    pause_reason = CASE WHEN $1 = 'active' THEN NULL ELSE pause_reason END,
+		    updated_at = NOW()
+		WHERE id = $2 AND user_id = $3`,
 		status, id, userID)
 	if err != nil {
 		return err
@@ -126,7 +132,7 @@ func (r *Repo) Update(ctx context.Context, userID, id uuid.UUID, in UpdateInput)
 func (r *Repo) ClaimDue(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]Plan, error) {
 	const q = `
 		SELECT id, user_id, portfolio_id, ticker, asset_type, amount, frequency,
-		       next_run_at, status, created_at, updated_at
+		       next_run_at, status, pause_reason, created_at, updated_at
 		FROM sip_plans
 		WHERE status = 'active' AND next_run_at <= $1
 		ORDER BY next_run_at
@@ -141,7 +147,7 @@ func (r *Repo) ClaimDue(ctx context.Context, tx pgx.Tx, now time.Time, limit int
 	for rows.Next() {
 		var p Plan
 		if err := rows.Scan(&p.ID, &p.UserID, &p.PortfolioID, &p.Ticker, &p.AssetType,
-			&p.Amount, &p.Frequency, &p.NextRunAt, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.Amount, &p.Frequency, &p.NextRunAt, &p.Status, &p.PauseReason, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -152,6 +158,24 @@ func (r *Repo) ClaimDue(ctx context.Context, tx pgx.Tx, now time.Time, limit int
 func (r *Repo) SetNextRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, next time.Time) error {
 	_, err := tx.Exec(ctx, `UPDATE sip_plans SET next_run_at = $1 WHERE id = $2`, next, id)
 	return err
+}
+
+// PauseFromScheduler is the scheduler-side variant of SetStatus: no user
+// guard (the system owns the action) and only ever flips active → paused.
+// Used when a SIP run fails for a recoverable reason like an empty wallet,
+// so the plan stops retrying every cycle until the user intervenes.
+func (r *Repo) PauseFromScheduler(ctx context.Context, id uuid.UUID, reason string) error {
+	cmd, err := r.db.Exec(ctx,
+		`UPDATE sip_plans
+		 SET status = 'paused', pause_reason = $2, updated_at = NOW()
+		 WHERE id = $1 AND status = 'active'`, id, reason)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // BeginTx exposes the pool to the scheduler so it can share a pool with the

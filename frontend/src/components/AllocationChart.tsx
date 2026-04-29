@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Sector } from "recharts";
+import { useChartTheme } from "@/hooks/useChartTheme";
 import { formatCurrency } from "@/lib/utils";
 
 export interface Slice {
@@ -12,6 +13,7 @@ const palette = ["#06b6d4", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#3b82f6
 export function AllocationChart({ data }: { data: Slice[] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   const [active, setActive] = useState<number | null>(null);
+  const chartTheme = useChartTheme();
 
   const activeSlice = active !== null ? data[active] : null;
   const centerLabel = activeSlice?.name ?? "Total";
@@ -37,7 +39,7 @@ export function AllocationChart({ data }: { data: Slice[] }) {
                 innerRadius={55}
                 outerRadius={82}
                 paddingAngle={2}
-                stroke="#07090d"
+                stroke={chartTheme.bg}
                 strokeWidth={2}
                 activeIndex={active ?? undefined}
                 activeShape={renderActiveShape}
@@ -73,7 +75,7 @@ export function AllocationChart({ data }: { data: Slice[] }) {
             <li
               key={d.name}
               className={`flex items-center justify-between gap-2 rounded-md px-1 text-sm transition-colors ${
-                active === i ? "bg-white/[0.04]" : ""
+                active === i ? "bg-overlay/[0.04]" : ""
               }`}
               onMouseEnter={() => setActive(i)}
               onMouseLeave={() => setActive(null)}

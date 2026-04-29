@@ -152,7 +152,7 @@ function ListRow({
         onClick={toggle}
         disabled={pending}
         className={cn(
-          "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-white/[0.05] disabled:opacity-50",
+          "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-overlay/[0.05] disabled:opacity-50",
           checked && "text-fg",
         )}
       >
@@ -206,7 +206,7 @@ function CreateInline({
       <button
         type="button"
         onClick={() => setAdding(true)}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-fg-muted transition-colors hover:bg-white/[0.05] hover:text-fg"
+        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-fg-muted transition-colors hover:bg-overlay/[0.05] hover:text-fg"
       >
         <Plus className="h-3.5 w-3.5" />
         New watchlist

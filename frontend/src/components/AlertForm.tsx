@@ -63,7 +63,7 @@ export function AlertForm({ open, onOpenChange, defaultTicker, currentPrice }: A
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <button className="rounded p-1 text-fg-muted hover:bg-white/5 hover:text-fg">
+              <button className="rounded p-1 text-fg-muted hover:bg-overlay/5 hover:text-fg">
                 <X className="h-4 w-4" />
               </button>
             </Dialog.Close>

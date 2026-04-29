@@ -105,6 +105,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, r, httpx.NewError(http.StatusUnprocessableEntity, "no_position", "no open position to sell"))
 		case errors.Is(err, ErrInsufficientQty):
 			httpx.Error(w, r, httpx.NewError(http.StatusUnprocessableEntity, "insufficient_quantity", "cannot sell more than you own"))
+		case errors.Is(err, ErrInsufficientBalance):
+			httpx.Error(w, r, httpx.NewError(http.StatusUnprocessableEntity, "insufficient_balance", "wallet balance is too low for this trade — deposit funds or reduce the amount"))
 		default:
 			httpx.Error(w, r, err)
 		}

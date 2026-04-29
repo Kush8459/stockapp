@@ -19,6 +19,7 @@ import (
 type Handler struct {
 	repo       *Repo
 	portfolios portfolioCreator
+	wallets    walletSeeder
 	signer     *auth.Signer
 	authLimit  *httpx.RateLimiter
 }
@@ -29,10 +30,22 @@ type portfolioCreator interface {
 	CreateDefault(ctx context.Context, userID uuid.UUID, name string) error
 }
 
+// walletSeeder seeds the starter balance on signup. Implemented by
+// wallet.Service.EnsureForUser. Optional — nil is tolerated for tests.
+type walletSeeder interface {
+	EnsureForUser(ctx context.Context, userID uuid.UUID) error
+}
+
 // NewHandler builds the auth handler. authLimit, if non-nil, is applied to
 // /auth/login and /auth/register to slow down credential-stuffing.
-func NewHandler(db *pgxpool.Pool, signer *auth.Signer, portfolios portfolioCreator, authLimit *httpx.RateLimiter) *Handler {
-	return &Handler{repo: NewRepo(db), portfolios: portfolios, signer: signer, authLimit: authLimit}
+func NewHandler(db *pgxpool.Pool, signer *auth.Signer, portfolios portfolioCreator, wallets walletSeeder, authLimit *httpx.RateLimiter) *Handler {
+	return &Handler{
+		repo:       NewRepo(db),
+		portfolios: portfolios,
+		wallets:    wallets,
+		signer:     signer,
+		authLimit:  authLimit,
+	}
 }
 
 func (h *Handler) Routes(r chi.Router) {
@@ -125,6 +138,12 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 
 	// Best-effort default portfolio. Don't block signup if this fails.
 	_ = h.portfolios.CreateDefault(r.Context(), u.ID, "My Portfolio")
+
+	// Seed the starter wallet balance. Same best-effort posture — if this
+	// fails the user's first wallet GET will create it lazily.
+	if h.wallets != nil {
+		_ = h.wallets.EnsureForUser(r.Context(), u.ID)
+	}
 
 	h.issueTokens(w, r, u, http.StatusCreated)
 }

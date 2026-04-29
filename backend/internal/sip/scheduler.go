@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 
+	"github.com/stockapp/backend/internal/metrics"
 	"github.com/stockapp/backend/internal/price"
 	"github.com/stockapp/backend/internal/transaction"
 )
@@ -100,6 +101,7 @@ func (s *Scheduler) execute(ctx context.Context, p Plan) {
 			Str("plan", p.ID.String()).
 			Msg("sip: skipping run, no live price")
 		s.audit(ctx, p, "sip.skipped", map[string]any{"reason": "no_price"})
+		metrics.SipRunTotal.WithLabelValues("skipped_no_price").Inc()
 		return
 	}
 	qty := p.Amount.Div(quote.Price).Round(8)
@@ -123,8 +125,29 @@ func (s *Scheduler) execute(ctx context.Context, p Plan) {
 		SourceID:    &planID,
 	})
 	if err != nil {
+		// Insufficient wallet balance is a recoverable user-side failure:
+		// pause the plan so we don't burn audit rows retrying every cycle,
+		// and surface a clear "needs attention" state in the UI.
+		if errors.Is(err, transaction.ErrInsufficientBalance) {
+			if pauseErr := s.repo.PauseFromScheduler(ctx, p.ID, "insufficient_balance"); pauseErr != nil {
+				log.Warn().Err(pauseErr).Str("plan", p.ID.String()).
+					Msg("sip pause-on-low-balance failed")
+			}
+			log.Info().
+				Str("plan", p.ID.String()).
+				Str("ticker", p.Ticker).
+				Str("amount", p.Amount.String()).
+				Msg("sip paused: insufficient wallet balance")
+			s.audit(ctx, p, "sip.paused_low_balance", map[string]any{
+				"reason": "insufficient_balance",
+				"amount": p.Amount.String(),
+			})
+			metrics.SipRunTotal.WithLabelValues("paused_low_balance").Inc()
+			return
+		}
 		log.Warn().Err(err).Str("plan", p.ID.String()).Msg("sip execute failed")
 		s.audit(ctx, p, "sip.failed", map[string]any{"error": err.Error()})
+		metrics.SipRunTotal.WithLabelValues("failed").Inc()
 		return
 	}
 	log.Info().
@@ -138,6 +161,7 @@ func (s *Scheduler) execute(ctx context.Context, p Plan) {
 		"quantity":      qty.String(),
 		"price":         quote.Price.String(),
 	})
+	metrics.SipRunTotal.WithLabelValues("executed").Inc()
 }
 
 func (s *Scheduler) audit(ctx context.Context, p Plan, action string, payload map[string]any) {

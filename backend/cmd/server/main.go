@@ -17,11 +17,12 @@ import (
 	"github.com/stockapp/backend/internal/config"
 	"github.com/stockapp/backend/internal/dividend"
 	"github.com/stockapp/backend/internal/fundamentals"
+	"github.com/stockapp/backend/internal/goal"
 	"github.com/stockapp/backend/internal/httpx"
 	"github.com/stockapp/backend/internal/indices"
-	"github.com/stockapp/backend/internal/insights"
 	"github.com/stockapp/backend/internal/logger"
 	"github.com/stockapp/backend/internal/market"
+	"github.com/stockapp/backend/internal/metrics"
 	"github.com/stockapp/backend/internal/mf"
 	"github.com/stockapp/backend/internal/news"
 	"github.com/stockapp/backend/internal/pnl"
@@ -35,6 +36,7 @@ import (
 	"github.com/stockapp/backend/internal/tax"
 	"github.com/stockapp/backend/internal/transaction"
 	"github.com/stockapp/backend/internal/user"
+	"github.com/stockapp/backend/internal/wallet"
 	"github.com/stockapp/backend/internal/watchlist"
 )
 
@@ -101,7 +103,8 @@ func run() error {
 	// can filter rankings by membership.
 	go indices.LoadAll(ctx)
 
-	portSvc := portfolio.NewService(db, priceCache)
+	portSvc := portfolio.NewService(db, priceCache, rdb)
+	walletSvc := wallet.NewService(db)
 	txnSvc := transaction.NewService(db)
 	pnlSvc := pnl.NewService(db, priceCache)
 	alertRepo := alert.NewRepo(db)
@@ -115,14 +118,6 @@ func run() error {
 	newsSvc := news.NewService(cfg.News.APIKey, rdb)
 	if !newsSvc.Enabled() {
 		log.Warn().Msg("NEWSAPI_KEY not set — /news/:ticker will return 503")
-	}
-
-	insightsSvc := insights.NewService(
-		cfg.Gemini.APIKey, cfg.Gemini.Model, cfg.Gemini.FallbackModel,
-		db, rdb, portSvc, pnlSvc,
-	)
-	if !insightsSvc.Enabled() {
-		log.Warn().Msg("GEMINI_API_KEY not set — /insights will return 503")
 	}
 
 	sipRepo := sip.NewRepo(db)
@@ -140,17 +135,25 @@ func run() error {
 	r.Use(httpx.Logger)
 	r.Use(httpx.SecurityHeaders(cfg.Env == "production"))
 	r.Use(httpx.CORS(cfg.CORSOrigins))
+	// Metrics middleware sees every request after auth/CORS so the route
+	// label reflects what chi matched (one label per route, not per UUID).
+	r.Use(metrics.HTTPMiddleware)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "time": time.Now().UTC()})
 	})
+
+	// /metrics is intentionally unauthenticated and outside /api/v1 so a
+	// Prometheus sidecar can scrape it without juggling JWTs. In production
+	// you'd put this behind network-level ACLs.
+	r.Handle("/metrics", metrics.Handler())
 
 	// 5 req burst, 1 token / 12s ≈ 5 per minute per IP. Enough for honest
 	// retries; tight enough to make credential stuffing painful.
 	authLimiter := httpx.NewRateLimiter(5, 12*time.Second)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		user.NewHandler(db, signer, portSvc, authLimiter).Routes(r)
+		user.NewHandler(db, signer, portSvc, walletSvc, authLimiter).Routes(r)
 
 		// public price endpoints (the UI reads these before auth completes)
 		price.NewHandler(priceCache, rdb).Routes(r)
@@ -168,11 +171,12 @@ func run() error {
 			alert.NewHandler(alertRepo).Routes(r)
 			sip.NewHandler(sipRepo).Routes(r)
 			news.NewHandler(newsSvc).Routes(r)
-			insights.NewHandler(insightsSvc).Routes(r)
 			tax.NewHandler(tax.NewService(db, priceCache)).Routes(r)
 			// Multi-watchlist: /watchlists CRUD + /watchlists/:id/items.
 			watchlist.NewHandler(watchlist.NewRepo(db), priceCache).Routes(r)
 			dividend.NewHandler(dividend.NewRepo(db)).Routes(r)
+			wallet.NewHandler(walletSvc).Routes(r)
+			goal.NewHandler(goal.NewRepo(db)).Routes(r)
 		})
 	})
 

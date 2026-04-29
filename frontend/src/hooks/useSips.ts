@@ -11,6 +11,9 @@ export interface SipPlan {
   frequency: "daily" | "weekly" | "monthly" | "yearly";
   nextRunAt: string;
   status: "active" | "paused" | "cancelled";
+  /** Set by the scheduler when it auto-pauses the plan, e.g. when the
+   *  wallet was empty at runtime. NULL means user-paused or never paused. */
+  pauseReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

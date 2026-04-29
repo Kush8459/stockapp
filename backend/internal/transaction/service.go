@@ -12,6 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
+
+	"github.com/stockapp/backend/internal/metrics"
+	"github.com/stockapp/backend/internal/wallet"
 )
 
 type Side string
@@ -32,9 +35,10 @@ const (
 )
 
 var (
-	ErrInsufficientQty = errors.New("insufficient quantity")
-	ErrHoldingNotFound = errors.New("holding not found")
-	ErrNotAllowed      = errors.New("not allowed")
+	ErrInsufficientQty     = errors.New("insufficient quantity")
+	ErrHoldingNotFound     = errors.New("holding not found")
+	ErrNotAllowed          = errors.New("not allowed")
+	ErrInsufficientBalance = errors.New("insufficient wallet balance")
 )
 
 type Transaction struct {
@@ -48,10 +52,17 @@ type Transaction struct {
 	Price       decimal.Decimal `json:"price"`
 	TotalAmount decimal.Decimal `json:"totalAmount"`
 	Fees        decimal.Decimal `json:"fees"`
-	Note        *string         `json:"note,omitempty"`
-	Source      Source          `json:"source"`
-	SourceID    *uuid.UUID      `json:"sourceId,omitempty"`
-	ExecutedAt  time.Time       `json:"executedAt"`
+	// Charges breakdown — populated for new trades; zero for legacy rows.
+	Brokerage decimal.Decimal `json:"brokerage"`
+	Statutory decimal.Decimal `json:"statutory"`
+	// NetAmount is what hit the wallet:
+	//   buy:  qty*price + brokerage + statutory  (debit)
+	//   sell: qty*price − brokerage − statutory  (credit)
+	NetAmount  decimal.Decimal `json:"netAmount"`
+	Note       *string         `json:"note,omitempty"`
+	Source     Source          `json:"source"`
+	SourceID   *uuid.UUID      `json:"sourceId,omitempty"`
+	ExecutedAt time.Time       `json:"executedAt"`
 }
 
 // LedgerEntry is a single row of the double-entry ledger attached to a txn.
@@ -113,7 +124,18 @@ func NewService(db *pgxpool.Pool) *Service { return &Service{db: db} }
 //   - We insert into transactions, write the double-entry pair into
 //     ledger_entries, update the holdings row, and append to audit_log — or
 //     nothing, on error.
-func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, error) {
+func (s *Service) Execute(ctx context.Context, in ExecuteInput) (txn *Transaction, err error) {
+	// Observe end-to-end latency including the SERIALIZABLE outer transaction.
+	start := time.Now()
+	defer func() {
+		metrics.TradeExecuteSeconds.
+			WithLabelValues(string(in.Side), in.AssetType).
+			Observe(time.Since(start).Seconds())
+		if err != nil {
+			metrics.TradeFailedTotal.WithLabelValues(reasonForError(err)).Inc()
+		}
+	}()
+
 	if in.Quantity.Sign() <= 0 {
 		return nil, fmt.Errorf("quantity must be > 0")
 	}
@@ -128,7 +150,17 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 		source = SourceManual
 	}
 
-	total := in.Price.Mul(in.Quantity).Add(in.Fees)
+	// Compute charges deterministically from the asset type / side / value.
+	// The legacy `Fees` field (still on the input for backwards compat) is
+	// folded into the charge bucket so callers can override if needed.
+	charges := wallet.ComputeCharges(in.AssetType, string(in.Side), in.Quantity, in.Price)
+	if in.Fees.Sign() > 0 {
+		charges.Statutory = charges.Statutory.Add(in.Fees)
+		charges.Total = charges.Total.Add(in.Fees)
+	}
+
+	gross := in.Price.Mul(in.Quantity)
+	netAmount := wallet.NetAmount(string(in.Side), in.Quantity, in.Price, charges)
 
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -218,14 +250,41 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 	// Insert the transaction.
 	txID := uuid.New()
 	executedAt := time.Now().UTC()
+	// total_amount keeps the historical "gross + fees" semantics so older
+	// reports/exports still tie out. New code reads brokerage / statutory /
+	// net_amount directly.
+	totalLegacy := gross.Add(in.Fees)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO transactions
 		  (id, user_id, portfolio_id, ticker, asset_type, side, quantity, price,
-		   total_amount, fees, note, source, source_id, executed_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		   total_amount, fees, brokerage, statutory_charges, net_amount,
+		   note, source, source_id, executed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		txID, in.UserID, in.PortfolioID, in.Ticker, in.AssetType, in.Side,
-		in.Quantity, in.Price, total, in.Fees, in.Note, source, in.SourceID, executedAt,
+		in.Quantity, in.Price, totalLegacy, in.Fees,
+		charges.Brokerage, charges.Statutory, netAmount,
+		in.Note, source, in.SourceID, executedAt,
 	); err != nil {
+		return nil, err
+	}
+
+	// Move cash on the wallet within this same outer transaction so a
+	// successful trade can never desynchronise from the wallet balance.
+	signedAmount := netAmount
+	walletKind := "sell"
+	if in.Side == SideBuy {
+		signedAmount = netAmount.Neg()
+		walletKind = "buy"
+	}
+	walletNote := fmt.Sprintf("%s %s × %s @ %s", in.Side, in.Ticker,
+		in.Quantity.String(), in.Price.String())
+	if _, err := wallet.ApplyTradeInTx(
+		ctx, tx, in.UserID, walletKind, signedAmount,
+		nil, nil, &walletNote, &txID,
+	); err != nil {
+		if errors.Is(err, wallet.ErrInsufficientBalance) {
+			return nil, ErrInsufficientBalance
+		}
 		return nil, err
 	}
 
@@ -260,7 +319,10 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 		"side":      in.Side,
 		"quantity":  in.Quantity.String(),
 		"price":     in.Price.String(),
-		"total":     total.String(),
+		"total":     totalLegacy.String(),
+		"brokerage": charges.Brokerage.String(),
+		"statutory": charges.Statutory.String(),
+		"netAmount": netAmount.String(),
 		"holdingId": holdingID,
 		"source":    source,
 		"sourceId":  in.SourceID,
@@ -284,6 +346,10 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 		return nil, err
 	}
 
+	metrics.TradeTotal.
+		WithLabelValues(string(in.Side), in.AssetType, string(source)).
+		Inc()
+
 	return &Transaction{
 		ID:          txID,
 		UserID:      in.UserID,
@@ -293,8 +359,11 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 		Side:        in.Side,
 		Quantity:    in.Quantity,
 		Price:       in.Price,
-		TotalAmount: total,
+		TotalAmount: totalLegacy,
 		Fees:        in.Fees,
+		Brokerage:   charges.Brokerage,
+		Statutory:   charges.Statutory,
+		NetAmount:   netAmount,
 		Note:        in.Note,
 		Source:      source,
 		SourceID:    in.SourceID,
@@ -308,13 +377,15 @@ func (s *Service) Execute(ctx context.Context, in ExecuteInput) (*Transaction, e
 func (s *Service) Detail(ctx context.Context, userID, id uuid.UUID) (*Detail, error) {
 	const txnQ = `
 		SELECT id, user_id, portfolio_id, ticker, asset_type, side, quantity, price,
-		       total_amount, fees, note, source, source_id, executed_at
+		       total_amount, fees, brokerage, statutory_charges, net_amount,
+		       note, source, source_id, executed_at
 		FROM transactions WHERE id = $1`
 	var t Transaction
 	if err := s.db.QueryRow(ctx, txnQ, id).Scan(
 		&t.ID, &t.UserID, &t.PortfolioID, &t.Ticker, &t.AssetType, &t.Side,
-		&t.Quantity, &t.Price, &t.TotalAmount, &t.Fees, &t.Note,
-		&t.Source, &t.SourceID, &t.ExecutedAt,
+		&t.Quantity, &t.Price, &t.TotalAmount, &t.Fees,
+		&t.Brokerage, &t.Statutory, &t.NetAmount,
+		&t.Note, &t.Source, &t.SourceID, &t.ExecutedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotAllowed
@@ -373,13 +444,31 @@ func (s *Service) Detail(ctx context.Context, userID, id uuid.UUID) (*Detail, er
 	return &Detail{Transaction: t, LedgerEntries: entries, AuditEntries: audits}, nil
 }
 
+// reasonForError collapses an Execute error into one of the labels we
+// track in `trade_failed_total`. Anything unexpected gets `internal`.
+func reasonForError(err error) string {
+	switch {
+	case errors.Is(err, ErrInsufficientBalance):
+		return "insufficient_balance"
+	case errors.Is(err, ErrInsufficientQty):
+		return "insufficient_qty"
+	case errors.Is(err, ErrHoldingNotFound):
+		return "no_position"
+	case errors.Is(err, ErrNotAllowed):
+		return "not_allowed"
+	default:
+		return "internal"
+	}
+}
+
 func (s *Service) ListForUser(ctx context.Context, userID uuid.UUID, limit int) ([]Transaction, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	const q = `
 		SELECT id, user_id, portfolio_id, ticker, asset_type, side, quantity, price,
-		       total_amount, fees, note, source, source_id, executed_at
+		       total_amount, fees, brokerage, statutory_charges, net_amount,
+		       note, source, source_id, executed_at
 		FROM transactions
 		WHERE user_id = $1
 		ORDER BY executed_at DESC
@@ -393,8 +482,9 @@ func (s *Service) ListForUser(ctx context.Context, userID uuid.UUID, limit int) 
 	for rows.Next() {
 		var t Transaction
 		if err := rows.Scan(&t.ID, &t.UserID, &t.PortfolioID, &t.Ticker, &t.AssetType, &t.Side,
-			&t.Quantity, &t.Price, &t.TotalAmount, &t.Fees, &t.Note,
-			&t.Source, &t.SourceID, &t.ExecutedAt); err != nil {
+			&t.Quantity, &t.Price, &t.TotalAmount, &t.Fees,
+			&t.Brokerage, &t.Statutory, &t.NetAmount,
+			&t.Note, &t.Source, &t.SourceID, &t.ExecutedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

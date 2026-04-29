@@ -49,9 +49,55 @@ services:
       ]
     command: ["up"]
 
+  # ── Observability stack ──────────────────────────────────────────────
+  # Bring up with:
+  #   docker compose --profile observability up -d
+  #
+  # Prometheus scrapes the API at host.docker.internal:8080/metrics — the
+  # API runs natively (`go run`) in dev. Grafana reads from prometheus,
+  # provisioned via the read-only mount of infra/grafana.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: stockapp-prometheus
+    profiles: ["observability"]
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      # Allow Prometheus inside Docker to reach the API running on the host.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: stockapp-grafana
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
 # Kafka is intentionally deferred. The platform runs end-to-end on Postgres +
 # Redis + an in-process event bus. Add a kafka/zookeeper service (or Redpanda)
 # when the event bus grows beyond a single node.

@@ -87,7 +87,7 @@ function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
         <Toast.Close asChild>
           <button
             aria-label="Close"
-            className="absolute right-2 top-2 rounded p-1 text-fg-muted hover:bg-white/5 hover:text-fg"
+            className="absolute right-2 top-2 rounded p-1 text-fg-muted hover:bg-overlay/5 hover:text-fg"
           >
             <X className="h-3.5 w-3.5" />
           </button>

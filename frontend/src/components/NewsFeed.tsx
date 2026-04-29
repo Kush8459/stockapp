@@ -51,7 +51,7 @@ function Row({ article, index }: { article: NewsArticle; index: number }) {
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="group flex gap-3 px-5 py-4 transition-colors hover:bg-white/[0.03]"
+        className="group flex gap-3 px-5 py-4 transition-colors hover:bg-overlay/[0.03]"
       >
         <div className="flex-1 min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-fg-muted">
@@ -114,11 +114,11 @@ function Skeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <li key={i} className="animate-pulse px-5 py-4">
           <div className="mb-2 flex gap-2">
-            <div className="h-3 w-16 rounded-full bg-white/5" />
-            <div className="h-3 w-16 rounded-full bg-white/5" />
+            <div className="h-3 w-16 rounded-full bg-overlay/5" />
+            <div className="h-3 w-16 rounded-full bg-overlay/5" />
           </div>
-          <div className="h-3.5 w-[80%] rounded bg-white/5" />
-          <div className="mt-1.5 h-3 w-[60%] rounded bg-white/5" />
+          <div className="h-3.5 w-[80%] rounded bg-overlay/5" />
+          <div className="mt-1.5 h-3 w-[60%] rounded bg-overlay/5" />
         </li>
       ))}
     </ul>

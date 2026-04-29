@@ -83,7 +83,88 @@ export function HoldingsTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Mobile: stacked card list. The table below is hidden on small
+          screens — a 7-column table never reads well at phone widths even
+          with horizontal scroll. */}
+      <ul className="divide-y divide-border/40 md:hidden">
+        {sorted.map(({ h, qty, avg, value, pnl, pnlPct }) => (
+          <li
+            key={h.id}
+            onClick={() => onOpen?.(h.ticker)}
+            className="cursor-pointer px-4 py-3 transition-colors hover:bg-overlay/[0.03]"
+          >
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
+                  h.assetType === "mf"
+                    ? "bg-violet-500/15 text-violet-300"
+                    : "bg-cyan-500/15 text-cyan-300",
+                )}
+              >
+                {h.ticker.slice(0, 2)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{h.ticker}</div>
+                <div className="num text-[11px] text-fg-muted">
+                  {qty.toLocaleString()} × {formatCurrency(avg)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="num text-sm font-medium">
+                  {formatCurrency(value)}
+                </div>
+                <div
+                  className={cn(
+                    "num text-[11px] font-medium",
+                    pnl >= 0 ? "pos" : "neg",
+                  )}
+                >
+                  {pnl >= 0 ? "+" : ""}
+                  {formatCurrency(pnl)} · {formatPercent(pnlPct)}
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle" />
+            </div>
+            {(onTrade || onOpen) && (
+              <div className="mt-3 flex gap-2">
+                {onTrade && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTrade(h.ticker, "buy");
+                      }}
+                      className="btn-outline h-9 flex-1 px-2 text-xs"
+                    >
+                      <ArrowDownLeft className="h-3.5 w-3.5" /> Buy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTrade(h.ticker, "sell");
+                      }}
+                      className="btn-outline h-9 flex-1 px-2 text-xs"
+                    >
+                      <ArrowUpRight className="h-3.5 w-3.5" /> Sell
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+        {sorted.length === 0 && (
+          <li className="px-4 py-10 text-center text-sm text-fg-muted">
+            No holdings yet.
+          </li>
+        )}
+      </ul>
+
+      {/* Desktop: full sortable table. */}
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-[22%] min-w-[180px]" />
@@ -147,7 +228,7 @@ export function HoldingsTable({
               <tr
                 key={h.id}
                 onClick={() => onOpen?.(h.ticker)}
-                className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-white/[0.03]"
+                className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-overlay/[0.03]"
               >
                 {/* Asset */}
                 <td className="px-3 py-3">
@@ -222,7 +303,7 @@ export function HoldingsTable({
                       onClick={() => onTrade?.(h.ticker, "buy")}
                       aria-label="Buy"
                       title="Buy"
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-white/5 hover:text-success"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay/5 hover:text-success"
                     >
                       <ArrowDownLeft className="h-3.5 w-3.5" />
                     </button>
@@ -231,7 +312,7 @@ export function HoldingsTable({
                       onClick={() => onTrade?.(h.ticker, "sell")}
                       aria-label="Sell"
                       title="Sell"
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-white/5 hover:text-danger"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay/5 hover:text-danger"
                     >
                       <ArrowUpRight className="h-3.5 w-3.5" />
                     </button>
@@ -240,7 +321,7 @@ export function HoldingsTable({
                       onClick={() => onOpen?.(h.ticker)}
                       aria-label="Open detail"
                       title="Open detail"
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-white/5 hover:text-fg"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay/5 hover:text-fg"
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>

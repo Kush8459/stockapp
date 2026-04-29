@@ -86,7 +86,7 @@ export function TickerPicker({
           type="button"
           aria-label="Toggle suggestions"
           onClick={() => setOpen((o) => !o)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-fg-subtle hover:bg-white/5 hover:text-fg"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-fg-subtle hover:bg-overlay/5 hover:text-fg"
         >
           <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
         </button>
@@ -110,7 +110,7 @@ export function TickerPicker({
               }}
               className={cn(
                 "num cursor-pointer px-3 py-2 text-sm",
-                i === activeIdx ? "bg-white/[0.06] text-fg" : "text-fg-muted",
+                i === activeIdx ? "bg-overlay/[0.06] text-fg" : "text-fg-muted",
               )}
             >
               {t}

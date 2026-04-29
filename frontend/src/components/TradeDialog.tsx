@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownLeft, ArrowUpRight, Loader2, X } from "lucide-react";
 import { api, apiErrorMessage } from "@/lib/api";
 import { cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
+import { computeCharges, netAmount } from "@/lib/charges";
+import { useWallet } from "@/hooks/useWallet";
 import type { Holding, Transaction } from "@/lib/types";
 import { useToast } from "./Toaster";
 
@@ -58,6 +60,21 @@ export function TradeDialog({
   const parsedPrice = toNum(price);
   const total = parsedQty * parsedPrice;
 
+  const charges = useMemo(
+    () => computeCharges(assetType, side, parsedQty, parsedPrice),
+    [assetType, side, parsedQty, parsedPrice],
+  );
+  const net = useMemo(
+    () => netAmount(side, parsedQty, parsedPrice, charges),
+    [side, parsedQty, parsedPrice, charges],
+  );
+
+  // Wallet balance gate. Buys must fit; sells don't read it (proceeds are
+  // credited, not deducted).
+  const wallet = useWallet();
+  const balance = toNum(wallet.data?.balance);
+  const overBalance = side === "buy" && parsedQty > 0 && net > balance;
+
   const inlineError = useMemo(() => {
     if (parsedQty <= 0) return null;
     if (side === "sell") {
@@ -65,8 +82,11 @@ export function TradeDialog({
       if (parsedQty > availableQty)
         return `You only have ${availableQty.toLocaleString()} available.`;
     }
+    if (overBalance) {
+      return `Need ${formatCurrency(net)} but wallet has ${formatCurrency(balance)}. Deposit funds or reduce the order.`;
+    }
     return null;
-  }, [parsedQty, side, position, availableQty]);
+  }, [parsedQty, side, position, availableQty, overBalance, net, balance]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -87,6 +107,8 @@ export function TradeDialog({
         qc.invalidateQueries({ queryKey: ["summary"] }),
         qc.invalidateQueries({ queryKey: ["transactions"] }),
         qc.invalidateQueries({ queryKey: ["xirr"] }),
+        qc.invalidateQueries({ queryKey: ["wallet"] }),
+        qc.invalidateQueries({ queryKey: ["wallet-history"] }),
       ]);
       pushToast({
         kind: "success",
@@ -122,7 +144,7 @@ export function TradeDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-bg-card p-6 shadow-glow">
+        <Dialog.Content className="scrollbar-none fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border bg-bg-card p-6 shadow-glow">
           <div className="flex items-start justify-between">
             <div>
               <Dialog.Title className="flex items-center gap-2 text-xl font-semibold">
@@ -146,7 +168,7 @@ export function TradeDialog({
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <button className="rounded p-1 text-fg-muted hover:bg-white/5 hover:text-fg">
+              <button className="rounded p-1 text-fg-muted hover:bg-overlay/5 hover:text-fg">
                 <X className="h-4 w-4" />
               </button>
             </Dialog.Close>
@@ -274,18 +296,56 @@ export function TradeDialog({
               </p>
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border border-border bg-bg-soft px-4 py-3">
-              <div>
-                <div className="label">{side === "buy" ? "Total cost" : "Total proceeds"}</div>
-                {parsedQty > 0 && position && (
-                  <div className="num mt-0.5 text-[11px] text-fg-muted">
-                    {side === "buy"
-                      ? `New qty: ${(availableQty + parsedQty).toLocaleString()}`
-                      : `Remaining: ${(availableQty - parsedQty).toLocaleString()}`}
-                  </div>
-                )}
+            <div className="space-y-2 rounded-lg border border-border bg-bg-soft px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="label">Order value</div>
+                <span className="num text-sm">{formatCurrency(total)}</span>
               </div>
-              <span className="num text-lg font-medium">{formatCurrency(total)}</span>
+              {charges.total > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-[11px] text-fg-muted">
+                    <span>Brokerage</span>
+                    <span className="num">{formatCurrency(charges.brokerage)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-fg-muted">
+                    <span>Statutory + GST</span>
+                    <span className="num">{formatCurrency(charges.statutory)}</span>
+                  </div>
+                </>
+              )}
+              {assetType === "mf" && parsedQty > 0 && (
+                <div className="text-[11px] text-fg-subtle">
+                  Direct plan — no brokerage or statutory charges.
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-border/60 pt-2">
+                <div>
+                  <div className="label">
+                    {side === "buy" ? "Net debit" : "Net credit"}
+                  </div>
+                  {parsedQty > 0 && position && (
+                    <div className="num mt-0.5 text-[11px] text-fg-muted">
+                      {side === "buy"
+                        ? `New qty: ${(availableQty + parsedQty).toLocaleString()}`
+                        : `Remaining: ${(availableQty - parsedQty).toLocaleString()}`}
+                    </div>
+                  )}
+                </div>
+                <span className="num text-lg font-medium">{formatCurrency(net)}</span>
+              </div>
+              {side === "buy" && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-fg-subtle">Wallet balance</span>
+                  <span
+                    className={cn(
+                      "num",
+                      overBalance ? "text-danger" : "text-fg-muted",
+                    )}
+                  >
+                    {formatCurrency(balance)}
+                  </span>
+                </div>
+              )}
             </div>
 
             {inlineError && !err && (

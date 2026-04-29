@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2, Search as SearchIcon, X } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useSearch, type SearchResult } from "@/hooks/useSearch";
-import { cn } from "@/lib/utils";
+import { assetHref, cn } from "@/lib/utils";
 
 /**
  * Global ticker search. Debounces the input, hits /api/v1/search, renders
@@ -52,7 +52,7 @@ export function SearchBar() {
     const t = stripSuffix(r.symbol);
     setOpen(false);
     setQuery("");
-    navigate(`/stock/${t}`);
+    navigate(assetHref(t));
   }
 
   const showDropdown = open && debounced.trim().length >= 2;
@@ -100,7 +100,7 @@ export function SearchBar() {
                 setQuery("");
                 inputRef.current?.focus();
               }}
-              className="rounded p-1 text-fg-subtle hover:bg-white/5 hover:text-fg"
+              className="rounded p-1 text-fg-subtle hover:bg-overlay/5 hover:text-fg"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -128,7 +128,7 @@ export function SearchBar() {
                   }}
                   className={cn(
                     "flex cursor-pointer items-center gap-3 border-b border-border/40 px-4 py-2.5 last:border-0",
-                    i === activeIdx && "bg-white/[0.05]",
+                    i === activeIdx && "bg-overlay/[0.05]",
                   )}
                 >
                   <span

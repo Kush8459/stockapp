@@ -12,6 +12,7 @@ import {
 import { api, apiErrorMessage } from "@/lib/api";
 import { usePortfolios } from "@/hooks/usePortfolio";
 import { useCreateSip } from "@/hooks/useSips";
+import { useWallet } from "@/hooks/useWallet";
 import { useToast } from "./Toaster";
 import { SipProjectionChart } from "./SipProjectionChart";
 import { cn, formatCompact, formatCurrency, toNum } from "@/lib/utils";
@@ -117,7 +118,7 @@ function Header({ fund, onClose }: { fund: MfFund; onClose: () => void }) {
       <Dialog.Close asChild>
         <button
           onClick={onClose}
-          className="rounded p-1 text-fg-muted hover:bg-white/5 hover:text-fg"
+          className="rounded p-1 text-fg-muted hover:bg-overlay/5 hover:text-fg"
           aria-label="Close"
         >
           <X className="h-4 w-4" />
@@ -146,7 +147,7 @@ function ModeButton({
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        active ? "bg-white/10 text-fg" : "text-fg-muted hover:text-fg",
+        active ? "bg-overlay/10 text-fg" : "text-fg-muted hover:text-fg",
       )}
     >
       {icon}
@@ -161,6 +162,7 @@ function ModeButton({
 function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
   const portfolios = usePortfolios();
   const portfolio = portfolios.data?.[0];
+  const wallet = useWallet();
   const qc = useQueryClient();
   const { push } = useToast();
   const [amount, setAmount] = useState("5000");
@@ -169,6 +171,8 @@ function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
   const nav = fund.nav ? toNum(fund.nav.value) : 0;
   const amountNum = toNum(amount);
   const units = nav > 0 ? amountNum / nav : 0;
+  const balance = toNum(wallet.data?.balance);
+  const overBalance = amountNum > balance;
 
   const buy = useMutation({
     mutationFn: async () => {
@@ -189,6 +193,8 @@ function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
         qc.invalidateQueries({ queryKey: ["summary"] }),
         qc.invalidateQueries({ queryKey: ["transactions"] }),
         qc.invalidateQueries({ queryKey: ["xirr"] }),
+        qc.invalidateQueries({ queryKey: ["wallet"] }),
+        qc.invalidateQueries({ queryKey: ["wallet-history"] }),
       ]);
       push({
         kind: "success",
@@ -213,6 +219,12 @@ function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
     }
     if (amountNum < 100) {
       setErr("Minimum lumpsum is ₹100.");
+      return;
+    }
+    if (overBalance) {
+      setErr(
+        `Need ${formatCurrency(amountNum)} but wallet has ${formatCurrency(balance)}. Deposit funds or reduce the amount.`,
+      );
       return;
     }
     buy.mutate();
@@ -242,6 +254,20 @@ function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
               </div>
               <Sparkles className="h-6 w-6 text-brand" />
             </div>
+            <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[11px]">
+              <span className="text-fg-subtle">Wallet balance</span>
+              <span
+                className={cn(
+                  "num",
+                  overBalance ? "text-danger" : "text-fg-muted",
+                )}
+              >
+                {formatCurrency(balance)}
+              </span>
+            </div>
+            <div className="text-[11px] text-fg-subtle">
+              Direct plan — no brokerage or statutory charges.
+            </div>
           </div>
         ) : (
           <div className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
@@ -266,7 +292,7 @@ function LumpsumPanel({ fund, onDone }: { fund: MfFund; onDone: () => void }) {
           type="submit"
           form="mf-lumpsum-form"
           className="btn-primary min-w-40"
-          disabled={buy.isPending}
+          disabled={buy.isPending || overBalance || amountNum < 100}
         >
           {buy.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Invest {formatCurrency(amountNum)}

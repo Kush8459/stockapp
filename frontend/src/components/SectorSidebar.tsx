@@ -37,7 +37,7 @@ export function SectorSidebar() {
               className={({ isActive }) =>
                 cn(
                   "group flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
-                  isActive ? "bg-white/[0.06] text-fg" : "text-fg-muted hover:bg-white/[0.03] hover:text-fg",
+                  isActive ? "bg-overlay/[0.06] text-fg" : "text-fg-muted hover:bg-overlay/[0.03] hover:text-fg",
                 )
               }
             >

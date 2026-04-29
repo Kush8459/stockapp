@@ -1,11 +1,35 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark" />
     <title>Stockapp — Investments</title>
+    <script>
+      // Resolve the persisted theme before paint so the page doesn't flash
+      // dark when the user has chosen light (or vice versa). Mirrors the
+      // shape of zustand's persist middleware (state.theme).
+      (function () {
+        try {
+          var raw = localStorage.getItem("stockapp-theme");
+          var theme = "dark";
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && parsed.state && parsed.state.theme) {
+              theme = parsed.state.theme;
+            }
+          }
+          document.documentElement.classList.toggle("light", theme === "light");
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          var meta = document.createElement("meta");
+          meta.name = "color-scheme";
+          meta.content = theme;
+          document.head.appendChild(meta);
+        } catch (_) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
   </head>
   <body class="antialiased">
     <div id="root"></div>

@@ -6,6 +6,7 @@ import { RegisterPage } from "@/pages/Register";
 import { DashboardPage } from "@/pages/Dashboard";
 import { AppShell } from "@/components/AppShell";
 import { useAuth } from "@/store/auth";
+import { useTheme } from "@/store/theme";
 
 // Heavier / less-visited pages load on demand so the initial bundle stays
 // lean. Dashboard + Login stay eager because one of them renders on first paint.
@@ -47,6 +48,9 @@ const MutualFundDetailPage = lazy(() =>
     default: m.MutualFundDetailPage,
   })),
 );
+const ProfilePage = lazy(() =>
+  import("@/pages/Profile").then((m) => ({ default: m.ProfilePage })),
+);
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.accessToken);
@@ -73,9 +77,25 @@ function ScrollToTop() {
   return null;
 }
 
+// Reflect the current theme onto <html>'s class list. The pre-paint inline
+// script in index.html sets the initial value; this just keeps it in sync
+// after the user toggles.
+function ThemeSync() {
+  const theme = useTheme((s) => s.theme);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("light", theme === "light");
+    root.classList.toggle("dark", theme === "dark");
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    if (meta) meta.setAttribute("content", theme);
+  }, [theme]);
+  return null;
+}
+
 export default function App() {
   return (
     <>
+      <ThemeSync />
       <ScrollToTop />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -182,6 +202,14 @@ export default function App() {
           element={
             <Suspense fallback={<RouteLoader />}>
               <MutualFundDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <ProfilePage />
             </Suspense>
           }
         />

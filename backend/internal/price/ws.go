@@ -12,6 +12,7 @@ import (
 
 	"github.com/stockapp/backend/internal/auth"
 	"github.com/stockapp/backend/internal/httpx"
+	"github.com/stockapp/backend/internal/metrics"
 )
 
 // Hub multiplexes the in-process price stream to every connected browser
@@ -89,14 +90,19 @@ func (h *Hub) Run(ctx context.Context) error {
 			}
 			payload := encodeEvent("price", q)
 			h.mu.RLock()
+			sent := 0
 			for c := range h.clients {
 				select {
 				case c.send <- payload:
+					sent++
 				default:
 					// slow client: drop. They'll see the next tick.
 				}
 			}
 			h.mu.RUnlock()
+			if sent > 0 {
+				metrics.WsMessagesSentTotal.Add(float64(sent))
+			}
 		}
 	}
 }
@@ -154,7 +160,9 @@ func (h *Hub) add(c *client) {
 		h.byUser[c.userID] = make(map[*client]struct{})
 	}
 	h.byUser[c.userID][c] = struct{}{}
+	count := float64(len(h.clients))
 	h.mu.Unlock()
+	metrics.WsConnectionsActive.Set(count)
 }
 
 func (h *Hub) remove(c *client) {
@@ -169,7 +177,9 @@ func (h *Hub) remove(c *client) {
 		}
 		close(c.send)
 	}
+	count := float64(len(h.clients))
 	h.mu.Unlock()
+	metrics.WsConnectionsActive.Set(count)
 	_ = c.conn.Close()
 }
 

@@ -25,6 +25,20 @@ dev-logs: ## Tail infra logs
 migrate-up: ## Apply all pending SQL migrations
 	docker compose --profile tools run --rm migrate up
 
+# --- observability ---
+.PHONY: obs-up obs-down obs-logs
+obs-up: ## Start prometheus + grafana (Grafana on :3000, Prom on :9090)
+	docker compose --profile observability up -d prometheus grafana
+	@echo "Grafana: http://localhost:3000 (admin/admin) — board: 'Stockapp · API & Trading'"
+	@echo "Prometheus: http://localhost:9090"
+
+obs-down: ## Stop prometheus + grafana
+	docker compose --profile observability down
+
+obs-logs: ## Tail observability logs
+	docker compose --profile observability logs -f prometheus grafana
+
+
 migrate-down: ## Roll back the most recent migration
 	docker compose --profile tools run --rm migrate down 1
 

@@ -28,7 +28,7 @@ export function RangeSelector({
           className={cn(
             "num rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
             value === o.value
-              ? "bg-white/10 text-fg"
+              ? "bg-overlay/10 text-fg"
               : "text-fg-muted hover:text-fg",
           )}
         >

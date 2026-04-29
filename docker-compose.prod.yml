@@ -76,9 +76,6 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-720h}
       PRICE_SOURCE: ${PRICE_SOURCE:-mock}
       NEWSAPI_KEY: ${NEWSAPI_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
-      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-2.0-flash}
     ports:
       - "8080:8080"
 

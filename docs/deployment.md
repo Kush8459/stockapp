@@ -31,7 +31,6 @@ Required across all options:
 
 Optional integrations (leave the env var empty to disable):
 - `NEWSAPI_KEY` — https://newsapi.org/
-- `GEMINI_API_KEY` — https://aistudio.google.com/app/apikey
 - `UPSTOX_API_KEY` / `UPSTOX_API_SECRET` / `UPSTOX_ACCESS_TOKEN` —
   official Upstox v3 live feed. The access token expires daily at
   ~3:30 AM IST; refresh with `cmd/upstox-login`. Without these, set

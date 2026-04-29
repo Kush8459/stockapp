@@ -1,0 +1,25 @@
+# Prometheus scrape config for the stockapp dev/observability stack.
+# Mounted read-only into the prom container at /etc/prometheus/prometheus.yml.
+
+global:
+  scrape_interval: 10s
+  scrape_timeout: 5s
+  external_labels:
+    cluster: stockapp-dev
+
+scrape_configs:
+  # The API exposes /metrics on the same port as the rest of the app
+  # (no separate observability port). When running the API natively
+  # (`go run ./cmd/server`) the host loopback is reachable from inside
+  # docker via host.docker.internal — see the compose extra_hosts.
+  - job_name: stockapp-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: api
+
+  # Self-scrape so the Grafana board can pull Prometheus health metrics too.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

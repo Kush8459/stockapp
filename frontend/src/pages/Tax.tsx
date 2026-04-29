@@ -114,14 +114,14 @@ function FYSelector({
             onClick={() => onChange(y.financialYear)}
             className={cn(
               "group flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              isActive ? "bg-white/10 text-fg" : "text-fg-muted hover:text-fg",
+              isActive ? "bg-overlay/10 text-fg" : "text-fg-muted hover:text-fg",
             )}
           >
             <span>{y.financialYear}</span>
             <span
               className={cn(
                 "num rounded-full px-1.5 text-[10px]",
-                total > 0 ? "bg-warn/15 text-warn" : "bg-white/5",
+                total > 0 ? "bg-warn/15 text-warn" : "bg-overlay/5",
               )}
             >
               {total > 0 ? `Tax ${formatCompact(total)}` : "No tax"}

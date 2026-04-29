@@ -37,8 +37,12 @@ type Plan struct {
 	Frequency   Frequency       `json:"frequency"`
 	NextRunAt   time.Time       `json:"nextRunAt"`
 	Status      Status          `json:"status"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
+	// PauseReason is set by the scheduler when it auto-pauses a SIP for a
+	// recoverable reason (e.g. empty wallet). NULL means user-paused or
+	// never paused. Surfaced in the UI to explain "why is my SIP off?".
+	PauseReason *string   `json:"pauseReason,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Advance returns the next run time after one period of the given frequency.

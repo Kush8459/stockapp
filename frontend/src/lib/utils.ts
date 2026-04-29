@@ -46,3 +46,18 @@ export function toNum(v: string | number | undefined | null): number {
   const n = typeof v === "number" ? v : parseFloat(v);
   return Number.isFinite(n) ? n : 0;
 }
+
+/** Mutual-fund tickers in our system are `MF<schemeCode>`. */
+export function isMfTicker(ticker: string): boolean {
+  return /^MF\d+$/.test(ticker);
+}
+
+/**
+ * Route an asset to its detail page. Mutual funds open `/funds/{ticker}`;
+ * everything else opens the stock detail page. Pass `assetType` when known
+ * (holdings, watchlist, transactions); ticker shape is the fallback.
+ */
+export function assetHref(ticker: string, assetType?: string): string {
+  if (assetType === "mf" || isMfTicker(ticker)) return `/funds/${ticker}`;
+  return `/stock/${ticker}`;
+}

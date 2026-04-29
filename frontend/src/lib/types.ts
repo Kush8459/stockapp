@@ -44,8 +44,20 @@ export interface Transaction {
   side: "buy" | "sell";
   quantity: string;
   price: string;
+  /** Legacy gross + fees. New code should prefer netAmount + brokerage + statutory. */
   totalAmount: string;
   fees: string;
+  /** Brokerage charge for this leg. Zero on MFs and pre-wallet rows. */
+  brokerage?: string;
+  /** Statutory charges + GST. Zero on MFs and pre-wallet rows. */
+  statutory?: string;
+  /**
+   * Cash that hit the wallet:
+   *   buy:  qty*price + brokerage + statutory  (debit)
+   *   sell: qty*price − brokerage − statutory  (credit)
+   * Zero on rows from before the wallet was introduced.
+   */
+  netAmount?: string;
   note?: string | null;
   source: TxnSource;
   sourceId?: string | null;

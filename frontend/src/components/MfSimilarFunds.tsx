@@ -64,33 +64,33 @@ function SimilarRow({ fund }: { fund: MfFund }) {
     <li>
       <Link
         to={`/funds/${fund.ticker}`}
-        className="group flex items-center gap-3 rounded-lg border border-border/60 bg-bg-soft/30 px-3 py-2.5 transition-colors hover:border-border-strong hover:bg-bg-soft/60"
+        className="group block rounded-lg border border-border/60 bg-bg-soft/30 px-3 py-2.5 transition-colors hover:border-border-strong hover:bg-bg-soft/60"
       >
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
-            {fund.amc}
-          </div>
-          <div className="truncate text-sm font-medium leading-tight group-hover:text-brand">
+        <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
+          {fund.amc}
+        </div>
+        <div className="flex items-baseline gap-3">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium leading-tight group-hover:text-brand">
             {fund.name}
           </div>
-        </div>
-        <div className="text-right">
-          <div className="num text-sm font-medium">
-            {nav > 0 ? formatCurrency(nav) : "—"}
+          <div className="flex shrink-0 items-baseline gap-2">
+            <span className="num text-sm font-medium">
+              {nav > 0 ? formatCurrency(nav) : "—"}
+            </span>
+            {change !== null && (
+              <span
+                className={cn(
+                  "num text-[11px]",
+                  change >= 0 ? "pos" : "neg",
+                )}
+              >
+                {change >= 0 ? "+" : ""}
+                {change.toFixed(2)}%
+              </span>
+            )}
+            <ChevronRight className="h-3.5 w-3.5 self-center text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
-          {change !== null && (
-            <div
-              className={cn(
-                "num text-[11px]",
-                change >= 0 ? "pos" : "neg",
-              )}
-            >
-              {change >= 0 ? "+" : ""}
-              {change.toFixed(2)}%
-            </div>
-          )}
         </div>
-        <ChevronRight className="h-3.5 w-3.5 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
       </Link>
     </li>
   );

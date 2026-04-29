@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, Download, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { useHoldings, usePortfolios, useSummary, useTransactions } from "@/hooks/usePortfolio";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { usePortfolioXirr } from "@/hooks/usePnl";
-import { cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
+import { assetHref, cn, formatPercent, toNum } from "@/lib/utils";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { useAuth } from "@/store/auth";
-import { PnLCard } from "@/components/PnLCard";
-import { AllocationChart } from "@/components/AllocationChart";
 import { HoldingsTable, type HoldingRow } from "@/components/HoldingsTable";
 import { TradeDialog } from "@/components/TradeDialog";
-import { AiInsights } from "@/components/AiInsights";
+import { BenchmarkChart } from "@/components/BenchmarkChart";
+import { DashboardHero } from "@/components/DashboardHero";
 import { LiveBadge } from "@/components/LiveBadge";
 import { MarketMovers } from "@/components/MarketMovers";
+import { OnboardingCard } from "@/components/OnboardingCard";
+import { WalletDialog } from "@/components/WalletDialog";
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export function DashboardPage() {
     ticker: "",
     side: "buy",
   });
+  const [walletOpen, setWalletOpen] = useState(false);
 
   // Track price flashes to animate up/down pulses when a new tick arrives.
   const prevPrices = useRef<Record<string, number>>({});
@@ -84,38 +86,9 @@ export function DashboardPage() {
     return { invested, value, pnl, pnlPct, dayChange };
   }, [rows, quotes]);
 
-  const allocation = useMemo(() => {
-    const byType = new Map<string, number>();
-    for (const r of rows) {
-      const price = r.livePrice ?? toNum(r.currentPrice);
-      const val = price * toNum(r.quantity);
-      byType.set(r.assetType, (byType.get(r.assetType) ?? 0) + val);
-    }
-    return [...byType.entries()].map(([name, value]) => ({
-      name: name === "mf" ? "Mutual Fund" : "Stocks",
-      value,
-    }));
-  }, [rows]);
-
-  const topMovers = useMemo(() => {
-    const withPct = rows.map((r) => ({
-      ticker: r.ticker,
-      pct: toNum(quotes[r.ticker]?.changePct ?? r.dayChangePct),
-      price: r.livePrice ?? toNum(r.currentPrice),
-    }));
-    // Filter by sign so a stock can only appear in one list (and so a 0%
-    // / negative entry doesn't get listed as a "gainer").
-    return {
-      gainers: withPct
-        .filter((r) => r.pct > 0)
-        .sort((a, b) => b.pct - a.pct)
-        .slice(0, 3),
-      losers: withPct
-        .filter((r) => r.pct < 0)
-        .sort((a, b) => a.pct - b.pct)
-        .slice(0, 3),
-    };
-  }, [rows, quotes]);
+  // (The old `allocation` and `topMovers` derivations are gone — the
+  // hero card computes its own movers from `rows`, and the dashboard no
+  // longer renders a stand-alone allocation pie at this level.)
 
   if (portfolios.isLoading || holdings.isLoading) {
     return (
@@ -166,47 +139,31 @@ export function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-5">
-        <PnLCard label="Current value" value={s.value} index={0} />
-        <PnLCard label="Invested" value={s.invested} index={1} />
-        <PnLCard
-          label="Total P&L"
-          value={s.pnl}
-          deltaPct={s.pnlPct}
-          tone="auto"
-          index={2}
-        />
-        <PnLCard
-          label="Day change"
-          value={s.dayChange}
-          deltaPct={s.value > 0 ? (s.dayChange / s.value) * 100 : 0}
-          tone="auto"
-          index={3}
-        />
+      <OnboardingCard onAddFunds={() => setWalletOpen(true)} />
+
+      <DashboardHero
+        portfolioId={portfolio?.id}
+        invested={s.invested}
+        value={s.value}
+        pnl={s.pnl}
+        pnlPct={s.pnlPct}
+        dayChange={s.dayChange}
+        dayChangePct={s.value > 0 ? (s.dayChange / s.value) * 100 : 0}
+        rows={rows}
+      />
+
+      {/* XIRR pill — kept as a small secondary card; rate doesn't fit the
+          headline ribbon well but we still want to surface it. */}
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <XirrCard
           rate={xirr.data?.insufficient ? null : xirr.data?.rate ?? null}
           loading={xirr.isLoading}
           flowCount={xirr.data?.flowCount ?? 0}
-          index={4}
+          index={0}
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <AllocationChart data={allocation} />
-        </div>
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, delay: 0.1 }}
-          className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:col-span-2"
-        >
-          <Movers title="Top gainers" items={topMovers.gainers} positive />
-          <Movers title="Top losers" items={topMovers.losers} positive={false} />
-        </motion.div>
-      </section>
-
-      <AiInsights />
+      <BenchmarkChart portfolioId={portfolio?.id} />
 
       <MarketMovers />
 
@@ -214,7 +171,14 @@ export function DashboardPage() {
         <HoldingsTable
           rows={rows}
           onTrade={(ticker, side) => setTrade({ open: true, ticker, side })}
-          onOpen={(ticker) => navigate(`/stock/${ticker}`)}
+          onOpen={(ticker) =>
+            navigate(
+              assetHref(
+                ticker,
+                rows.find((r) => r.ticker === ticker)?.assetType,
+              ),
+            )
+          }
         />
       )}
 
@@ -234,6 +198,8 @@ export function DashboardPage() {
           }
         />
       )}
+
+      <WalletDialog open={walletOpen} onOpenChange={setWalletOpen} />
     </div>
   );
 }
@@ -276,49 +242,6 @@ function XirrCard({
           : "Annualized, cash-flow weighted"}
       </div>
     </motion.div>
-  );
-}
-
-function Movers({
-  title,
-  items,
-  positive,
-}: {
-  title: string;
-  items: { ticker: string; pct: number; price: number }[];
-  positive: boolean;
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between">
-        <span className="label">{title}</span>
-        <ArrowRight className="h-3.5 w-3.5 text-fg-subtle" />
-      </div>
-      <ul className="mt-3 space-y-2">
-        {items.length === 0 ? (
-          <li className="rounded-lg border border-dashed border-border/40 bg-bg-soft/30 px-3 py-3 text-center text-xs text-fg-muted">
-            {positive
-              ? "No holdings up today."
-              : "No holdings down today."}
-          </li>
-        ) : (
-          items.map((it) => (
-            <li
-              key={it.ticker}
-              className="flex items-center justify-between rounded-lg border border-border/60 bg-bg-soft/50 px-3 py-2"
-            >
-              <span className="font-medium">{it.ticker}</span>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="num text-fg-muted">{formatCurrency(it.price)}</span>
-                <span className={cn("num font-medium", positive ? "pos" : "neg")}>
-                  {formatPercent(it.pct)}
-                </span>
-              </div>
-            </li>
-          ))
-        )}
-      </ul>
-    </div>
   );
 }
 

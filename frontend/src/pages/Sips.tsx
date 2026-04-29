@@ -102,12 +102,12 @@ export function SipsPage() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium capitalize transition-colors",
                   statusFilter === s
-                    ? "rounded-md bg-white/10 text-fg"
+                    ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
                 )}
               >
                 {s}
-                <span className="num rounded-full bg-white/5 px-1.5 text-[10px]">
+                <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
                   {counts[s]}
                 </span>
               </button>
@@ -204,7 +204,7 @@ function Row({
             {plan.ticker.slice(0, 2)}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{plan.ticker}</span>
               <span
                 className={cn(
@@ -217,6 +217,11 @@ function Row({
                 <CircleDot className="h-2.5 w-2.5" />
                 {plan.status}
               </span>
+              {plan.pauseReason === "insufficient_balance" && (
+                <span className="chip border-danger/40 bg-danger/10 text-[10px] text-danger">
+                  Low wallet balance — paused automatically
+                </span>
+              )}
             </div>
             <div className="num text-xs text-fg-muted">
               {formatCurrency(amount)} · {plan.frequency}
@@ -258,7 +263,7 @@ function Row({
               <button
                 type="button"
                 onClick={onEdit}
-                className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-fg"
+                className="rounded-md p-2 text-fg-muted hover:bg-overlay/5 hover:text-fg"
                 aria-label="Edit plan"
                 title="Edit"
               >
@@ -276,7 +281,7 @@ function Row({
               <button
                 type="button"
                 onClick={onCancel}
-                className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-danger"
+                className="rounded-md p-2 text-fg-muted hover:bg-overlay/5 hover:text-danger"
                 aria-label="Cancel plan"
                 title="Cancel"
               >

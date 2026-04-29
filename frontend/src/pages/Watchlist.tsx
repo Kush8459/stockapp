@@ -31,7 +31,7 @@ import { TradeDialog } from "@/components/TradeDialog";
 import { AlertForm } from "@/components/AlertForm";
 import { LiveBadge } from "@/components/LiveBadge";
 import { useToast } from "@/components/Toaster";
-import { cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
+import { assetHref, cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
 
 export function WatchlistPage() {
   const navigate = useNavigate();
@@ -154,7 +154,7 @@ function ListTabs({
               setName("");
               setCreating(false);
             }}
-            className="rounded-md p-1.5 text-fg-muted hover:bg-white/5 hover:text-fg"
+            className="rounded-md p-1.5 text-fg-muted hover:bg-overlay/5 hover:text-fg"
             aria-label="Cancel"
           >
             <X className="h-3.5 w-3.5" />
@@ -164,7 +164,7 @@ function ListTabs({
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="ml-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-white/5 hover:text-fg"
+          className="ml-1 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-overlay/5 hover:text-fg"
         >
           <Plus className="h-3.5 w-3.5" /> New list
         </button>
@@ -257,11 +257,11 @@ function TabPill({
         onClick={onSelect}
         className={cn(
           "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-          active ? "bg-white/10 text-fg" : "text-fg-muted hover:bg-white/5 hover:text-fg",
+          active ? "bg-overlay/10 text-fg" : "text-fg-muted hover:bg-overlay/5 hover:text-fg",
         )}
       >
         <span>{list.name}</span>
-        <span className="num rounded-full bg-white/5 px-1.5 text-[10px] text-fg-muted">
+        <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px] text-fg-muted">
           {list.itemCount}
         </span>
         <span
@@ -278,7 +278,7 @@ function TabPill({
               setMenuOpen((v) => !v);
             }
           }}
-          className="ml-0.5 rounded p-0.5 text-fg-subtle hover:bg-white/5 hover:text-fg"
+          className="ml-0.5 rounded p-0.5 text-fg-subtle hover:bg-overlay/5 hover:text-fg"
         >
           <MoreVertical className="h-3 w-3" />
         </span>
@@ -291,7 +291,7 @@ function TabPill({
               setRenaming(true);
               setMenuOpen(false);
             }}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-fg-muted hover:bg-white/5 hover:text-fg"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-fg-muted hover:bg-overlay/5 hover:text-fg"
           >
             <Pencil className="h-3 w-3" /> Rename
           </button>
@@ -391,7 +391,7 @@ function ItemsTable({
                   key={r.id}
                   r={r}
                   index={i}
-                  onOpen={() => navigate(`/stock/${r.ticker}`)}
+                  onOpen={() => navigate(assetHref(r.ticker, r.assetType))}
                   onBuy={() =>
                     setTrade({
                       ticker: r.ticker,
@@ -476,7 +476,7 @@ function Row({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index, 12) * 0.02 }}
       onClick={onOpen}
-      className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-white/[0.03]"
+      className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-overlay/[0.03]"
     >
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
@@ -556,7 +556,7 @@ function IconBtn({
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-white/5",
+        "inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay/5",
         tone === "success" && "hover:text-success",
         tone === "danger" && "hover:text-danger",
         !tone && "hover:text-fg",

@@ -28,7 +28,7 @@ bash but you can read it as a command list.
 # 1. Copy env and generate a JWT secret
 cp .env.example .env
 # edit .env: set JWT_SECRET=$(openssl rand -hex 32)
-# leave NEWSAPI_KEY / GEMINI_API_KEY / UPSTOX_* commented out unless you have them
+# leave NEWSAPI_KEY / UPSTOX_* commented out unless you have them
 
 # 2. Start infra (postgres + redis in Docker)
 docker compose up -d postgres redis
@@ -124,7 +124,9 @@ backend/
 │   ├── stocks/            /stocks browse — categories + paginated catalog over indices
 │   ├── mf/                /funds browse — AMFI directory loader + returns + metrics
 │   ├── news/              NewsAPI + keyword sentiment
-│   ├── insights/          Gemini client + portfolio snapshot + prompt + schema
+│   ├── wallet/            Cash account + charges (brokerage + statutory + GST) + atomic ApplyTradeInTx + deposit/withdraw
+│   ├── goal/              Savings goals (target corpus + deadline) — CRUD only, on-track verdict is UI-side
+│   ├── metrics/           Prometheus metric registry + HTTP middleware
 │   └── tax/               FIFO lot matching + per-FY tax buckets (Indian post-Jul-2024)
 ├── migrations/            golang-migrate SQL files (numbered)
 └── go.mod
@@ -134,18 +136,23 @@ frontend/
 │   ├── pages/             One file per route — Dashboard, Holdings, Watchlist,
 │   │                      Stocks, MutualFunds, MutualFundDetail, StockDetail,
 │   │                      SectorDetail, Transactions, TransactionDetail,
-│   │                      Sips, Alerts, Tax, Login, Register
-│   ├── components/        Reusable UI — AppShell, MarketContextBar, MarketStatusBar,
+│   │                      Sips, Alerts, Tax, Profile, Login, Register
+│   ├── components/        Reusable UI — AppShell, ConnectionBanner, PortfolioSwitcher,
+│   │                      DashboardHero, HoldingsHero, StockHero, BenchmarkChart,
+│   │                      OnboardingCard, MarketContextBar, MarketStatusBar,
 │   │                      SectorSidebar, MarketMovers, FundamentalsCard, FinancialsCard,
 │   │                      EventsCard, AboutCard, DividendsCard, WatchlistPopover,
-│   │                      HoldingsTable, TradeDialog, AlertForm, AiInsights, NewsFeed,
-│   │                      LiveChart, RangeSelector, MfInvestDialog, MfMetricsCard,
+│   │                      HoldingsTable, TradeDialog, AlertForm, NewsFeed,
+│   │                      WalletDialog, LiveChart, RangeSelector,
+│   │                      MfInvestDialog, MfRedeemDialog, MfMetricsCard,
 │   │                      MfReturnCalculator, MfSearchPicker, MfSimilarFunds,
 │   │                      SipEditDialog, TickerSearchPicker, …
-│   ├── hooks/             TanStack Query + WebSocket (useLivePrices with 100 ms coalesce)
-│   │                      + useInfiniteScroll (callback-ref IntersectionObserver) + misc
-│   ├── store/             Zustand (auth, alertEvents)
-│   └── lib/               api client (axios), utils, csv
+│   ├── hooks/             TanStack Query + WebSocket (useLivePrices with 100 ms coalesce
+│   │                      and 1→30s exponential-backoff reconnect) + useWallet + useGoals
+│   │                      + usePortfolioTimeseries + useChartTheme + useInfiniteScroll
+│   │                      (callback-ref IntersectionObserver) + misc
+│   ├── store/             Zustand (auth, theme, activePortfolio, alertEvents)
+│   └── lib/               api client (axios), utils, csv, charges
 ├── vite.config.ts         Bundle splitting lives here
 └── tsconfig.json
 

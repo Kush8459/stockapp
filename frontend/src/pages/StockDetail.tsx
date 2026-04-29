@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { motion } from "framer-motion";
-import { ArrowLeft, Bell, Loader2 } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { LiveChart, type Point } from "@/components/LiveChart";
 import { TradeDialog } from "@/components/TradeDialog";
 import { AlertForm } from "@/components/AlertForm";
 import { NewsFeed } from "@/components/NewsFeed";
 import { RangeSelector } from "@/components/RangeSelector";
-import { LiveBadge } from "@/components/LiveBadge";
-import { WatchlistPopover } from "@/components/WatchlistPopover";
+import { StockHero } from "@/components/StockHero";
 import { FundamentalsCard } from "@/components/FundamentalsCard";
 import { FinancialsCard } from "@/components/FinancialsCard";
 import { EventsCard } from "@/components/EventsCard";
@@ -144,40 +142,18 @@ export function StockDetailPage() {
         <ArrowLeft className="h-4 w-4" /> Back to dashboard
       </button>
 
-      <motion.header
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-        className="flex flex-wrap items-end justify-between gap-4"
-      >
-        <div>
-          <div className="text-xs uppercase tracking-wider text-fg-muted">
-            {holding?.assetType ?? "stock"}
-          </div>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{ticker}</h1>
-        </div>
-        <div className="flex items-end gap-5">
-          <div className="text-right">
-            <div className="label">Price</div>
-            <div className="num text-2xl font-semibold">{formatCurrency(livePrice)}</div>
-            {priceAsOf && (
-              <div className="num text-[10px] text-fg-subtle">
-                {hasLiveStream ? "real-time" : `as of ${priceAsOf}`}
-              </div>
-            )}
-          </div>
-          <span
-            className={cn(
-              "chip",
-              dayChangePct >= 0 ? "border-success/30 text-success" : "border-danger/30 text-danger",
-            )}
-          >
-            {formatPercent(dayChangePct)} today
-          </span>
-          <LiveBadge connected={connected} hasQuote={hasLiveStream} />
-          <WatchlistPopover ticker={ticker} assetType={holding?.assetType} />
-        </div>
-      </motion.header>
+      <StockHero
+        ticker={ticker}
+        livePrice={livePrice}
+        dayChangePct={dayChangePct}
+        hasLiveStream={hasLiveStream}
+        priceAsOf={priceAsOf}
+        connected={connected}
+        holding={holding}
+        onBuy={() => setTrade({ side: "buy" })}
+        onSell={() => setTrade({ side: "sell" })}
+        onAlert={() => setShowAlert(true)}
+      />
 
       <section className="card p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -210,8 +186,8 @@ export function StockDetailPage() {
       </section>
 
       {/* My position + trade actions */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="card p-5 lg:col-span-2">
+      <section>
+        <div className="card p-5">
           <div className="label mb-3">My position</div>
           {holding && qty > 0 ? (
             <>
@@ -285,36 +261,6 @@ export function StockDetailPage() {
           )}
         </div>
 
-        <div className="card flex flex-col gap-3 p-5">
-          <div className="label">Trade</div>
-          <button
-            className="btn-primary w-full"
-            onClick={() => setTrade({ side: "buy" })}
-            disabled={!portfolio}
-          >
-            Buy {ticker}
-          </button>
-          <button
-            className="btn-danger w-full"
-            onClick={() => setTrade({ side: "sell" })}
-            disabled={!portfolio || !holding || qty <= 0}
-          >
-            Sell {ticker}
-          </button>
-          <button className="btn-outline w-full" onClick={() => setShowAlert(true)}>
-            <Bell className="h-4 w-4" /> Set alert
-          </button>
-          <p className="text-[11px] text-fg-muted">
-            Orders settle instantly against your portfolio's ledger. Prices are the
-            current live tick unless you override below.
-          </p>
-          <Link
-            to="/"
-            className="mt-auto pt-2 text-center text-xs text-fg-muted hover:text-fg"
-          >
-            ← Back to portfolio overview
-          </Link>
-        </div>
       </section>
 
       {/* Stock-info sections, in order */}

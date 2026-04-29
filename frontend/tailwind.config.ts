@@ -19,29 +19,36 @@ export default {
       },
       colors: {
         bg: {
-          DEFAULT: "#07090d",
-          soft: "#0b0f16",
-          card: "#0f141c",
-          elevated: "#141b26",
+          DEFAULT: "rgb(var(--color-bg) / <alpha-value>)",
+          soft: "rgb(var(--color-bg-soft) / <alpha-value>)",
+          card: "rgb(var(--color-bg-card) / <alpha-value>)",
+          elevated: "rgb(var(--color-bg-elevated) / <alpha-value>)",
         },
         border: {
-          DEFAULT: "#1c2431",
-          strong: "#2a3444",
+          DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
+          strong: "rgb(var(--color-border-strong) / <alpha-value>)",
         },
         fg: {
-          DEFAULT: "#e7ecf3",
-          muted: "#8a95a6",
-          subtle: "#5b6678",
+          DEFAULT: "rgb(var(--color-fg) / <alpha-value>)",
+          muted: "rgb(var(--color-fg-muted) / <alpha-value>)",
+          subtle: "rgb(var(--color-fg-subtle) / <alpha-value>)",
         },
         brand: {
-          DEFAULT: "#06b6d4",
-          foreground: "#04151c",
+          DEFAULT: "rgb(var(--color-brand) / <alpha-value>)",
+          foreground: "rgb(var(--color-brand-fg) / <alpha-value>)",
         },
-        success: "#10b981",
-        danger: "#ef4444",
-        warn: "#f59e0b",
+        // Adaptive hover/divider overlay — white in dark mode, slate-900 in
+        // light mode. Use `bg-overlay/5`, `bg-overlay/10` etc. instead of
+        // raw `bg-white/N` so the same class works in both themes.
+        overlay: "rgb(var(--color-overlay) / <alpha-value>)",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        warn: "rgb(var(--color-warn) / <alpha-value>)",
       },
       boxShadow: {
+        // The inset highlight + drop shadow are both tuned for dark; in light
+        // mode the inset highlight is invisible and the drop shadow needs to
+        // be softer. See `:root.light .shadow-card` override in index.css.
         card: "0 1px 0 rgba(255,255,255,0.04) inset, 0 10px 30px -12px rgba(0,0,0,0.6)",
         glow: "0 0 0 1px rgba(6,182,212,0.18), 0 10px 40px -12px rgba(6,182,212,0.35)",
       },

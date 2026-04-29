@@ -156,7 +156,7 @@ function AlertRow({
       <button
         type="button"
         onClick={onDelete}
-        className="rounded-md p-2 text-fg-muted hover:bg-white/5 hover:text-danger"
+        className="rounded-md p-2 text-fg-muted hover:bg-overlay/5 hover:text-danger"
         aria-label="Delete alert"
       >
         <Trash2 className="h-4 w-4" />

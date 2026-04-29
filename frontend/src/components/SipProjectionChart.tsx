@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import { formatCompact, formatCurrency } from "@/lib/utils";
 import { sipSeries, type Frequency } from "@/lib/sip";
+import { useChartTheme } from "@/hooks/useChartTheme";
 
 interface SipProjectionChartProps {
   amount: number;
@@ -27,6 +28,7 @@ export function SipProjectionChart({
   height = 170,
 }: SipProjectionChartProps) {
   const data = sipSeries(amount, frequency, maxYears, annualRate);
+  const chartTheme = useChartTheme();
   return (
     <div style={{ height }}>
       <ResponsiveContainer>
@@ -41,25 +43,26 @@ export function SipProjectionChart({
               <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.02} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
+          <CartesianGrid stroke={chartTheme.border} vertical={false} />
           <XAxis
             dataKey="year"
             tickFormatter={(v) => `${v}y`}
-            tick={{ fill: "#5b6678", fontSize: 11 }}
+            tick={{ fill: chartTheme.fgSubtle, fontSize: 11 }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             tickFormatter={(v: number) => formatCompact(v).replace("₹", "")}
-            tick={{ fill: "#5b6678", fontSize: 11 }}
+            tick={{ fill: chartTheme.fgSubtle, fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             width={48}
           />
           <Tooltip
             contentStyle={{
-              background: "#141b26",
-              border: "1px solid #1c2431",
+              background: chartTheme.bgSoft,
+              border: `1px solid ${chartTheme.border}`,
+              color: chartTheme.fg,
               borderRadius: 8,
               fontSize: 12,
               padding: "6px 10px",

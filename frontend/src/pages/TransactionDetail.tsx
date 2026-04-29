@@ -14,7 +14,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useTransactionDetail } from "@/hooks/usePortfolio";
-import { cn, formatCurrency, toNum } from "@/lib/utils";
+import { assetHref, cn, formatCurrency, toNum } from "@/lib/utils";
 import type { LedgerEntry } from "@/lib/types";
 import { SourceChip } from "@/components/SourceChip";
 
@@ -47,6 +47,14 @@ export function TransactionDetailPage() {
   const fees = toNum(t.fees);
   const qty = toNum(t.quantity);
   const price = toNum(t.price);
+  // Wallet-era columns. Pre-wallet rows have these as 0; we fall back to the
+  // legacy gross + fees totals so old transactions still render meaningfully.
+  const brokerage = toNum(t.brokerage);
+  const statutory = toNum(t.statutory);
+  const netAmount = toNum(t.netAmount);
+  const hasCharges = brokerage > 0 || statutory > 0;
+  const heroAmount = netAmount > 0 ? netAmount : total;
+  const gross = qty * price;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -93,7 +101,7 @@ export function TransactionDetailPage() {
               <h1 className="mt-1 text-2xl font-semibold tracking-tight">
                 {isBuy ? "Bought" : "Sold"}{" "}
                 <span className="num">{qty.toLocaleString()}</span>{" "}
-                <Link to={`/stock/${t.ticker}`} className="text-brand hover:underline">
+                <Link to={assetHref(t.ticker, t.assetType)} className="text-brand hover:underline">
                   {t.ticker}
                 </Link>
               </h1>
@@ -108,14 +116,59 @@ export function TransactionDetailPage() {
             </div>
           </div>
           <div className="text-right">
-            <div className="label">{isBuy ? "Total cost" : "Total proceeds"}</div>
-            <div className="num mt-1 text-3xl font-semibold">{formatCurrency(total)}</div>
-            {fees > 0 && (
-              <div className="num text-xs text-fg-muted">incl. fees {formatCurrency(fees)}</div>
-            )}
+            <div className="label">{isBuy ? "Net debit" : "Net credit"}</div>
+            <div className="num mt-1 text-3xl font-semibold">{formatCurrency(heroAmount)}</div>
+            <div className="num text-xs text-fg-muted">
+              gross {formatCurrency(gross)}
+              {hasCharges && (
+                <>
+                  {" · "}
+                  {isBuy ? "+" : "−"}charges {formatCurrency(brokerage + statutory)}
+                </>
+              )}
+              {!hasCharges && fees > 0 && (
+                <> · incl. fees {formatCurrency(fees)}</>
+              )}
+            </div>
           </div>
         </div>
       </motion.section>
+
+      {/* Charges breakdown — like a real broker contract note. */}
+      {(hasCharges || netAmount > 0) && (
+        <section className="card p-6">
+          <div className="flex items-center gap-2">
+            <ScrollText className="h-4 w-4 text-fg-muted" />
+            <span className="label">Contract note</span>
+          </div>
+          <dl className="mt-4 space-y-2 text-sm">
+            <ChargeRow label="Order value (qty × price)" value={formatCurrency(gross)} />
+            <ChargeRow
+              label="Brokerage"
+              value={formatCurrency(brokerage)}
+              tone={isBuy ? "neg" : "neg"}
+              prefix={brokerage > 0 ? "−" : ""}
+            />
+            <ChargeRow
+              label="Statutory + GST"
+              value={formatCurrency(statutory)}
+              tone="neg"
+              prefix={statutory > 0 ? "−" : ""}
+            />
+            <div className="my-2 border-t border-border/60" />
+            <ChargeRow
+              label={isBuy ? "Net debit (wallet)" : "Net credit (wallet)"}
+              value={formatCurrency(heroAmount)}
+              bold
+            />
+          </dl>
+          {!hasCharges && t.assetType === "mf" && (
+            <p className="mt-3 text-[11px] text-fg-subtle">
+              Direct mutual-fund plan — zero brokerage and statutory charges.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Field grid */}
       <section className="card p-6">
@@ -130,8 +183,14 @@ export function TransactionDetailPage() {
           <Field label="Ticker" value={t.ticker} mono />
           <Field label="Quantity" value={qty.toLocaleString("en-IN", { maximumFractionDigits: 8 })} />
           <Field label="Price" value={formatCurrency(price)} />
-          <Field label="Total amount" value={formatCurrency(total)} />
-          <Field label="Fees" value={formatCurrency(fees)} />
+          <Field label="Order value" value={formatCurrency(gross)} />
+          <Field label="Brokerage" value={formatCurrency(brokerage)} />
+          <Field label="Statutory + GST" value={formatCurrency(statutory)} />
+          <Field
+            label={isBuy ? "Net debit" : "Net credit"}
+            value={formatCurrency(heroAmount)}
+          />
+          {fees > 0 && <Field label="Legacy fees" value={formatCurrency(fees)} />}
           <Field label="Executed at" value={new Date(t.executedAt).toLocaleString()} />
           <Field label="User ID" value={t.userId} mono copy />
           <Field label="Portfolio ID" value={t.portfolioId} mono copy />
@@ -207,6 +266,36 @@ export function TransactionDetailPage() {
           against the <code className="kbd">audit_log</code> table.
         </p>
       </section>
+    </div>
+  );
+}
+
+function ChargeRow({
+  label,
+  value,
+  prefix,
+  tone,
+  bold,
+}: {
+  label: string;
+  value: string;
+  prefix?: string;
+  tone?: "pos" | "neg";
+  bold?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className={cn("text-fg-muted", bold && "font-medium text-fg")}>{label}</span>
+      <span
+        className={cn(
+          "num",
+          bold && "text-base font-semibold",
+          tone === "neg" && !bold && "text-fg-muted",
+        )}
+      >
+        {prefix}
+        {value}
+      </span>
     </div>
   );
 }
@@ -376,7 +465,7 @@ function Field({
             type="button"
             onClick={doCopy}
             aria-label={`Copy ${label}`}
-            className="rounded p-1 text-fg-subtle hover:bg-white/5 hover:text-fg"
+            className="rounded p-1 text-fg-subtle hover:bg-overlay/5 hover:text-fg"
           >
             {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
           </button>

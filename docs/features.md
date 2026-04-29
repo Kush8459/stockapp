@@ -60,6 +60,8 @@ Default TTLs: **15 min** access, **30 days** refresh.
 | Inline validation (sell > available) | same |
 | Success toast with executed price + total | same |
 | Optional note field (200 chars) stored on the transaction | same |
+| **Charges breakdown** — order value, brokerage, statutory + GST, then "Net debit" or "Net credit" line. Live wallet-balance display; submit disabled and inline error when buy exceeds balance | same |
+| Asset-aware client-side charge preview matches backend `wallet.ComputeCharges`; backend recomputes authoritatively on submit | `frontend/src/lib/charges.ts` |
 
 ---
 
@@ -145,6 +147,8 @@ Displayed:
 | Live countdown chip on each row, turns green when running | `components/Countdown.tsx` |
 | Expandable rows with per-SIP projection and gain breakdown | `pages/Sips.tsx` |
 | Status filter tabs with per-tab counts | same |
+| **Auto-pause on low wallet balance** — scheduler catches `transaction.ErrInsufficientBalance`, pauses the plan with `pause_reason='insufficient_balance'`, audits `sip.paused_low_balance`. Resuming clears `pause_reason` (handled in `repo.SetStatus`) so the badge disappears | `internal/sip/scheduler.go` · `migrations/000008_sip_pause_reason.up.sql` |
+| Red "Low wallet balance — paused automatically" chip on each affected row + a top-of-page banner on Profile → SIPs with a one-click "Add funds" CTA | `pages/Sips.tsx` · `pages/Profile.tsx` (SipsTab) |
 
 ---
 
@@ -388,16 +392,69 @@ mid-dashboard lands at the top of the new page.
 
 ---
 
-## AI Portfolio Review (Gemini)
+## Wallet (paper-trading cash backbone)
+
+The whole app is now cash-backed. Buys debit a real INR wallet; sells credit
+net proceeds; charges modeled on Zerodha/Groww direct equity. The wallet is
+seeded with ₹1,00,000 for every user (existing accounts get a one-shot
+backfill via migration `000007`).
 
 | What | Where |
 |---|---|
-| Portfolio snapshot gathered as structured JSON | `internal/insights.Service.buildSnapshot` |
-| Gemini 2.5 Flash with `responseSchema` for structured output | `internal/insights.gemini` |
-| Automatic retry on 503/429/5xx + model fallback to 2.0 Flash | same |
-| Rich output: exec summary, 4 sub-scores, 4 highlight cards, per-axis analysis, severity-rated risks, priority-ranked suggestions, next-steps | `internal/insights.Insight` |
-| Redis cache 30 min per user | `insights.Service.Get` |
-| Polished frontend card: animated health dial, 4 mini gauges, highlight tiles, bucket lists, gradient "Do this week" panel, disclaimer footer | `components/AiInsights.tsx` |
+| `wallets` table — one row per user, ENUM-checked positive balance, currency | `migrations/000007_wallet.up.sql` · `internal/wallet.Service` |
+| `wallet_transactions` table — signed amount, kind (`deposit`/`withdraw`/`buy`/`sell`/`charge`/`refund`), running `balance_after`, FK to `transactions(id)` for trade-side rows | same |
+| Transactions extended with `brokerage`, `statutory_charges`, `net_amount` columns — every trade now records the contract-note breakdown | same |
+| **Charges model** — stocks: 0.1% brokerage capped at ₹20 per leg + GST 18% on brokerage, 0.1% on sell-side / 0.015% on buy-side statutory-equivalent (STT + stamp). MFs (Direct Plan): zero charges across the board | `internal/wallet/charges.go` |
+| `ApplyTradeInTx` — system-side wallet mutation called inside the transaction service's outer SERIALIZABLE tx, locks the wallet row with `FOR UPDATE`, refuses negative balance via `ErrInsufficientBalance` | `internal/wallet/service.go` |
+| `EnsureForUser` seeds `₹100000.00` + a "Welcome bonus" history row on first read (signup hook also calls it) | same |
+| `GET /wallet`, `POST /wallet/{deposit,withdraw}` (mocks UPI / bank / card; `bonus` is reserved for the seed), `GET /wallet/transactions` | `internal/wallet/handler.go` |
+| Wallet dialog with mode toggle (Deposit / Withdraw), preset amounts, method picker (UPI / Net banking / Debit card), explicit "Paper trading mode" copy | `components/WalletDialog.tsx` |
+| Wallet pill in the AppShell sidebar (always visible) shows the current balance and opens the dialog | `components/AppShell.tsx` |
+| Trade dialogs (`TradeDialog`, `MfInvestDialog`, `MfRedeemDialog`) display the brokerage + statutory + net debit/credit breakdown before confirm; submit disabled when buy exceeds balance with a friendly inline error | `components/TradeDialog.tsx` · `MfInvestDialog.tsx` |
+| **SIP pause-on-low-balance** — scheduler catches `ErrInsufficientBalance`, calls `repo.PauseFromScheduler(id, "insufficient_balance")`, audits `sip.paused_low_balance`. UI surfaces a red badge on the row + a banner on the Profile → SIPs tab with a one-click "Top up wallet" CTA | `internal/sip/scheduler.go` · `migrations/000008_sip_pause_reason.up.sql` |
+| Bank tab in Profile shows balance hero + recent activity feed (signed amounts, method chips, running balance) + the linked-methods notice | `pages/Profile.tsx` (BankTab) |
+
+---
+
+## Multi-portfolio + goals (Phase G)
+
+| What | Where |
+|---|---|
+| Portfolio CRUD endpoints — `POST /portfolios`, `PATCH /portfolios/{id}` (rename), `DELETE /portfolios/{id}`. Delete refuses if any transaction references it (audit-trail-safe) and if it would leave the user with zero portfolios | `internal/portfolio/handler.go` |
+| `usePortfolios()` reorders its result so the user's selected portfolio sits at index 0 — every `portfolios.data?.[0]` callsite picks up the active selection without further wiring | `frontend/src/hooks/usePortfolio.ts` |
+| Persisted active-portfolio store (`stockapp-active-portfolio` localStorage key, zustand + persist middleware) | `frontend/src/store/activePortfolio.ts` |
+| **PortfolioSwitcher** dropdown in the AppShell topbar — shows every portfolio with the active one checked, hover affordances for rename + delete (with confirm), inline "+ New portfolio" input | `components/PortfolioSwitcher.tsx` |
+| **Goals** table — name, target_amount, target_date, bucket, note. Linked to one portfolio (FK cascade) | `migrations/000009_goals.up.sql` · `internal/goal/repo.go` |
+| `GET / POST /goals`, `PATCH / DELETE /goals/{id}` | `internal/goal/handler.go` |
+| Profile → Goals tab — card-grid view of every goal with bucket emoji, progress bar (current portfolio value / target), and an **on-track / behind verdict** that projects current portfolio value forward at the user's XIRR (`PV × (1+r)^t`) and compares to target | `pages/Profile.tsx` (GoalsTab + GoalCard + GoalDialog) |
+| Five preset buckets — Retirement / Tax saving / Emergency / Trading / Custom — each with an emoji marker | same |
+
+---
+
+## Light/dark theme
+
+| What | Where |
+|---|---|
+| Tailwind colors driven by CSS variables (`rgb(var(--color-bg) / <alpha-value>)`) so per-class alpha (`bg-bg/70`) keeps working | `tailwind.config.ts` |
+| `:root` (dark, default) and `:root.light` overrides defined in `index.css` | `frontend/src/index.css` |
+| Adaptive `bg-overlay` color (white in dark, slate-900 in light) replaces every `bg-white/N` for hover/active states; 78 callsites migrated | tailwind config + repo-wide |
+| `useTheme` zustand store, persisted in `stockapp-theme` localStorage key | `frontend/src/store/theme.ts` |
+| Pre-paint inline script in `index.html` reads the persisted theme before React mounts so the page never flashes the wrong colors | `frontend/index.html` |
+| `<ThemeSync />` in `App.tsx` keeps `<html class="dark">` / `class="light"` in sync after toggle | `frontend/src/App.tsx` |
+| Sun/moon toggle in the sidebar header | `components/AppShell.tsx` |
+| `useChartTheme()` (memoised on theme) returns concrete colors for recharts + lightweight-charts, applied to Holdings pie, Allocation pie, FinancialsCard, SipProjectionChart, LiveChart | `frontend/src/hooks/useChartTheme.ts` |
+
+---
+
+## WebSocket resilience (Phase I)
+
+| What | Where |
+|---|---|
+| Auto-reconnect with exponential backoff (1s → 2s → 4s → 8s → 16s → 30s cap) when the WS drops while listeners are attached | `frontend/src/hooks/useLivePrices.ts` |
+| `LiveSnapshot` exposes `downSince` (ms epoch when WS dropped) and `reconnects` (counter, +1 on every successful re-open) | same |
+| `ConnectionBanner` mounts in the AppShell topbar — silent for the first 5s of a disconnect (sub-second blips don't flash a banner), then shows "Live prices disconnected — reconnecting…" with a live `down for {Xs}` counter | `components/ConnectionBanner.tsx` |
+| On reconnect: invalidates `["alerts"]`, `["alert-events"]`, `["holdings"]`, `["summary"]`, `["transactions"]` so anything that fired during the outage gets refetched and surfaces normally | same |
+| `detach()` cancels any pending reconnect when the last listener unmounts so a closed tab doesn't keep retrying | `useLivePrices.ts` |
 
 ---
 
@@ -419,13 +476,101 @@ mid-dashboard lands at the top of the new page.
 
 | What | Where |
 |---|---|
-| Live hero cards (value / invested / P&L / day change / XIRR) | `pages/Dashboard.tsx` · `components/PnLCard.tsx` |
-| Allocation donut with active-slice highlight | `components/AllocationChart.tsx` |
+| **Onboarding card** — three-step welcome (fund wallet → browse → first trade) with check-marks that light up as conditions are met; auto-graduates the moment the user has any transaction or holding | `components/OnboardingCard.tsx` |
+| **DashboardHero** — single composition replacing the old 5-tile + side-allocation rows: net-worth (cash + portfolio), pulsing day-change pill, **mood-ring gradient backdrop** that shifts cyan/violet → green → red based on day-change %, composition strip (cash / portfolio / invested as a gradient bar), 6-month portfolio sparkline, and **diverging race-bar movers** (today's per-position ₹ contribution sorted left/right of a center axis) | `components/DashboardHero.tsx` |
+| **BenchmarkChart** — Phase F. Overlays portfolio vs an Indian index, both normalized to 100 at start. Selectable benchmark (NIFTY 50 / SENSEX / BANK NIFTY / NIFTY IT / NIFTY MIDCAP), range pills (1M / 3M / 6M / 1Y / 5Y / ALL). Three delta pills — Your portfolio · {benchmark} · **Alpha** (positive = you beat the market) | `components/BenchmarkChart.tsx` |
 | Top movers card with NIFTY index filter | `components/MarketMovers.tsx` |
-| Holdings table with live flashes, sortable, quick actions | `components/HoldingsTable.tsx` |
+| Holdings table with live flashes, sortable; mobile collapses to stacked cards | `components/HoldingsTable.tsx` |
 | Buy/Sell modal wired to the row | `components/TradeDialog.tsx` |
-| AI review card (if `GEMINI_API_KEY` set) | `components/AiInsights.tsx` |
 | "Download statement" button → combined CSV (summary + holdings + all transactions) | `Dashboard.exportStatement` |
+
+---
+
+## Holdings page (refreshed)
+
+| What | Where |
+|---|---|
+| **HoldingsHero** — cohesive ribbon card replacing the old 8-cell totals + side allocation. Layout: big portfolio value with day-change pulse pill, invested/P&L sub-line, **6-month portfolio sparkline** (color matches P&L sign), allocation donut with top-5 legend on the right, and a 4-cell chip strip at the bottom (XIRR · Dividends FY · Best · Worst performer). Soft gradient backdrop with sentiment-tinted blur halo | `components/HoldingsHero.tsx` |
+| Holdings table — same as before, mobile renders stacked cards | `components/HoldingsTable.tsx` |
+| Type filter pills (All / Stock / MF) with live counts; allocation pie keyed off the live-priced totals | `pages/Holdings.tsx` |
+
+---
+
+## Stock detail page (refreshed)
+
+`/stock/:ticker` is now a **Bloomberg-style ribbon hero** + the existing
+chart + position + cards.
+
+| Section | Where |
+|---|---|
+| **StockHero** ribbon — intraday 1d sparkline as soft backdrop, ticker + sector chip, big animated price with **tick-flash** (green/red pulse for ~700 ms on every change), pulsing day-change pill, LiveBadge + Watchlist heart, **two range bars** (Day · 52-week) with gradient fill + position marker, **6-cell stats strip** (Mkt cap / P/E / EPS / Beta / Avg vol / Div yield), and a **Buy / Sell / Set alert** action row | `components/StockHero.tsx` |
+| Live chart with range selector (1D / 1W / 1M / 3M / 1Y / 5Y / ALL); 1D seeds from Redis intraday ring buffer + appends WS ticks | `components/LiveChart.tsx` |
+| Position card — qty / avg / invested / value / P&L / XIRR / day change + holding period + dividends received + total return | `pages/StockDetail.tsx` |
+| Events / Fundamentals / Financials / About / News cards in order | individual card components |
+
+---
+
+## MF detail page (refreshed)
+
+| What | Where |
+|---|---|
+| Header — fund name, AMC + category chip, plan/option, big NAV, day-change chip, `LiveBadge`, lumpsum / SIP / **Redeem** CTAs | `pages/MutualFundDetail.tsx` |
+| **Returns heatmap** — 8-cell horizontal heatmap (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / All) replacing the previous stacked card grid. Cell tint encodes magnitude (red 18–60% alpha for negatives, green for positives, muted neutral for `\|value\| < 0.5%`). `maxAbs` anchors the row's strongest move so a 60% 5Y doesn't make 8% 1Y look pale. Color legend in the header; `p.a.`/`abs` corner tag per cell | `pages/MutualFundDetail.tsx` (`HeatmapCell`) |
+| **MfRedeemDialog** — MF-styled redemption with Amount / Units mode toggle, position snapshot (units / avg NAV / value / P&L), 25%/50%/75%/All preset buttons, live "You'll receive" outcome card, realised P&L preview for the slice being redeemed; sanitiser truncates inputs to held units so NAV float drift can't overshoot | `components/MfRedeemDialog.tsx` |
+| Risk & performance card (volatility, Sharpe, max drawdown, calendar-year returns) | `components/MfMetricsCard.tsx` |
+| Return calculator with Lumpsum / SIP toggle | `components/MfReturnCalculator.tsx` |
+| Similar funds rail | `components/MfSimilarFunds.tsx` |
+
+---
+
+## Profile page
+
+`/profile` — single page with a tabbed sidebar (vertical on `lg+`, horizontal
+scroll strip on mobile).
+
+| Tab | What |
+|---|---|
+| Account | Avatar, display name, email, user ID, account-type chip; "Profile editing read-only" honest note |
+| Security | Auth method, token type, session storage; sign-out button |
+| Preferences | Theme (dark/light), currency (INR), Indian number format, detected timezone, notification + comms info |
+| Portfolio | Cash · Portfolio · Net worth headline + Invested / P&L / P&L % grid; 4 count tiles (stocks / MFs / SIPs / alerts) linking to the relevant pages |
+| **Goals** | List of goals as cards with progress bar, on-track verdict (XIRR-projected), bucket emoji; "+ New goal" dialog |
+| Orders | Most-recent 12 transactions inline with side chip + asset-aware routing; link to `/transactions` |
+| SIPs | Active / paused / monthly outflow stats + a **red banner** when one or more SIPs are paused due to low wallet balance, with a one-click "Add funds" CTA |
+| Alerts | Active / triggered / total + inline preview of active alerts |
+| Reports | CSV exports for Holdings, Transactions; link to Tax page |
+| **Bank & payments** | **Wallet balance hero** + Add funds / Withdraw CTAs + recent activity feed (signed amounts, method chips, running balance) + paper-trading-mode notice |
+| Help & about | Mode (paper trading), live-data sources, backend / frontend stack |
+
+---
+
+## Mobile responsiveness (Phase L)
+
+| What | Where |
+|---|---|
+| Sidebar `hidden md:flex` on desktop; on mobile a hamburger button in the topbar opens a slide-in **Radix Dialog drawer** carrying the same nav. Drawer auto-closes on every navigation via a `useLocation` effect | `components/AppShell.tsx` |
+| `MarketContextBar` hidden under `<sm` (illegible at phone widths) | same |
+| Tap targets ≥44px on every nav link, wallet pill, sign-out icon | same |
+| HoldingsTable: full table `hidden md:block`, mobile-only stacked card list with avatar + ticker + qty×avg / value / P&L / Buy+Sell button row | `components/HoldingsTable.tsx` |
+| Transactions: same pattern — full table desktop, compact card list mobile | `pages/Transactions.tsx` |
+| Profile sidebar: vertical grouped tabs on `lg+`, horizontal scroll strip on smaller | `pages/Profile.tsx` (TabSidebar) |
+
+---
+
+## Observability (Phase K)
+
+| What | Where |
+|---|---|
+| `/metrics` Prometheus endpoint (unauthenticated, outside `/api/v1`) | `cmd/server/main.go` |
+| `internal/metrics` package — single registry, custom collector list (no duplicated runtime metrics) | `internal/metrics/metrics.go` |
+| **HTTP middleware** records `api_request_seconds` histogram by `route × method × status_class`. Route label uses chi's matched pattern (`/portfolios/{id}` is one label, not one-per-UUID) | same |
+| **Trade metrics** — `trade_total{side,asset_type,source}`, `trade_failed_total{reason}` (insufficient_balance / insufficient_qty / no_position / not_allowed / internal), `trade_execute_seconds` histogram instrumenting the SERIALIZABLE path | `internal/transaction/service.go` |
+| **Wallet metrics** — `wallet_movement_total{kind}` (deposit/withdraw/buy/sell/charge/refund) | `internal/wallet/service.go` |
+| **SIP metrics** — `sip_run_total{status}` (executed / skipped_no_price / paused_low_balance / failed) | `internal/sip/scheduler.go` |
+| **WebSocket metrics** — `ws_connections_active` gauge (set on add/remove), `ws_messages_sent_total` counter (incremented by actual fan-out count, so slow-client drops aren't counted) | `internal/price/ws.go` |
+| **Upstream errors** — `upstream_error_total{provider,kind}` counter ready for Yahoo/Upstox/mfapi/NSE | `internal/metrics/metrics.go` |
+| **Grafana dashboard** auto-provisioned via `infra/grafana/dashboards/stockapp.json` — 12 panels: 4 stat tiles (active WS, trades/min, failures 5m, API p99), API latency p50/p95/p99 + top routes, trade latency p50/p95/p99 + trade rate by side+asset, failures by reason, wallet movements by kind, WS fan-out, SIP outcomes | same |
+| Compose stack — `prometheus` + `grafana` services under `--profile observability`. `make obs-up` brings up Grafana on `:3000` (admin/admin) and Prometheus on `:9090`. Prom uses `host.docker.internal:host-gateway` to scrape the natively-running API | `docker-compose.yml` · `infra/prometheus.yml` · `infra/grafana/provisioning/` |
 
 ---
 

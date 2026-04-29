@@ -306,7 +306,7 @@ function Chip({
     >
       <span>{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="num rounded-full bg-white/5 px-1.5 text-[10px]">
+        <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
           {count.toLocaleString("en-IN")}
         </span>
       )}
@@ -566,13 +566,13 @@ function SkeletonGrid() {
       {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} className="card animate-pulse p-4">
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded bg-white/5" />
-            <div className="h-4 w-24 rounded bg-white/5" />
+            <div className="h-7 w-7 rounded bg-overlay/5" />
+            <div className="h-4 w-24 rounded bg-overlay/5" />
           </div>
-          <div className="mt-2 h-3 w-3/4 rounded bg-white/5" />
+          <div className="mt-2 h-3 w-3/4 rounded bg-overlay/5" />
           <div className="mt-6 flex items-end justify-between">
-            <div className="h-6 w-20 rounded bg-white/5" />
-            <div className="h-5 w-14 rounded-full bg-white/5" />
+            <div className="h-6 w-20 rounded bg-overlay/5" />
+            <div className="h-5 w-14 rounded-full bg-overlay/5" />
           </div>
         </div>
       ))}

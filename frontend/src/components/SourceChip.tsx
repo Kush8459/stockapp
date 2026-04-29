@@ -23,7 +23,7 @@ const META: Record<
   },
   rebalance: {
     label: "Rebalance",
-    className: "border-fg-subtle/30 bg-white/5 text-fg-muted",
+    className: "border-fg-subtle/30 bg-overlay/5 text-fg-muted",
     icon: Shuffle,
   },
 };

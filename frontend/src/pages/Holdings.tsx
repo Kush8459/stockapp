@@ -11,20 +11,14 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
 import { useHoldings, usePortfolios } from "@/hooks/usePortfolio";
 import { useHoldingsXirr } from "@/hooks/useHoldingsXirr";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import { AlertForm } from "@/components/AlertForm";
 import { TradeDialog } from "@/components/TradeDialog";
+import { HoldingsHero } from "@/components/HoldingsHero";
 import { LiveBadge } from "@/components/LiveBadge";
-import { cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
+import { assetHref, cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
 import type { Holding } from "@/lib/types";
 
 type TypeFilter = "all" | "stock" | "mf";
@@ -92,6 +86,20 @@ export function HoldingsPage() {
       };
     });
   }, [holdings.data, quotes]);
+
+  // Top + bottom performer across the portfolio (by P&L %). Used in the
+  // second row of the totals card so a quick scan tells you what's pulling
+  // the portfolio up vs dragging it down.
+  const topMover = useMemo(() => {
+    let best: typeof enriched[number] | null = null;
+    let worst: typeof enriched[number] | null = null;
+    for (const r of enriched) {
+      if (r.invested <= 0) continue;
+      if (!best || r.pnlPct > best.pnlPct) best = r;
+      if (!worst || r.pnlPct < worst.pnlPct) worst = r;
+    }
+    return { best, worst };
+  }, [enriched]);
 
   const totals = useMemo(() => {
     let invested = 0;
@@ -174,89 +182,19 @@ export function HoldingsPage() {
         <LiveBadge connected={connected} />
       </header>
 
-      {/* Totals + allocation */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="card grid grid-cols-2 gap-4 p-5 lg:col-span-2 lg:grid-cols-4">
-          <Metric label="Invested" value={formatCurrency(totals.invested)} />
-          <Metric label="Current value" value={formatCurrency(totals.value)} />
-          <Metric
-            label="Total P&L"
-            value={formatCurrency(totals.pnl)}
-            sub={formatPercent(
-              totals.invested > 0 ? (totals.pnl / totals.invested) * 100 : 0,
-            )}
-            tone={totals.pnl >= 0 ? "pos" : "neg"}
-          />
-          <Metric
-            label="Day change"
-            value={formatCurrency(totals.dayChange)}
-            sub={formatPercent(
-              totals.value > 0 ? (totals.dayChange / totals.value) * 100 : 0,
-            )}
-            tone={totals.dayChange >= 0 ? "pos" : "neg"}
-          />
-        </div>
-
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <span className="label">Allocation by ticker</span>
-            <span className="num text-[11px] text-fg-muted">{allocation.length}</span>
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <div className="relative h-36 w-36 shrink-0">
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={allocation}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={42}
-                    outerRadius={68}
-                    paddingAngle={2}
-                    stroke="#07090d"
-                    strokeWidth={2}
-                  >
-                    {allocation.map((d, i) => (
-                      <Cell key={i} fill={d.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "#141b26",
-                      border: "1px solid #1c2431",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      padding: "6px 10px",
-                    }}
-                    formatter={(v: number, n: string) => [formatCurrency(v), n]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <ul className="max-h-36 flex-1 space-y-1 overflow-y-auto text-xs">
-              {allocation.slice(0, 8).map((d) => (
-                <li key={d.name} className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 truncate">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: d.color }}
-                    />
-                    <span className="truncate">{d.name}</span>
-                  </span>
-                  <span className="num text-fg-muted">
-                    {((d.value / (totals.value || 1)) * 100).toFixed(1)}%
-                  </span>
-                </li>
-              ))}
-              {allocation.length > 8 && (
-                <li className="text-[11px] text-fg-subtle">
-                  +{allocation.length - 8} more…
-                </li>
-              )}
-            </ul>
-          </div>
-        </div>
-      </section>
+      <HoldingsHero
+        portfolioId={portfolio?.id}
+        invested={totals.invested}
+        value={totals.value}
+        pnl={totals.pnl}
+        pnlPct={totals.invested > 0 ? (totals.pnl / totals.invested) * 100 : 0}
+        dayChange={totals.dayChange}
+        dayChangePct={totals.value > 0 ? (totals.dayChange / totals.value) * 100 : 0}
+        allocation={allocation}
+        best={topMover.best ? { ticker: topMover.best.ticker, pnl: topMover.best.pnl, pnlPct: topMover.best.pnlPct } : null}
+        worst={topMover.worst ? { ticker: topMover.worst.ticker, pnl: topMover.worst.pnl, pnlPct: topMover.worst.pnlPct } : null}
+        positionCount={enriched.length}
+      />
 
       {/* Filter bar */}
       <section className="card overflow-hidden">
@@ -279,12 +217,12 @@ export function HoldingsPage() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium capitalize transition-colors",
                     typeFilter === t
-                      ? "rounded-md bg-white/10 text-fg"
+                      ? "rounded-md bg-overlay/10 text-fg"
                       : "text-fg-muted hover:text-fg",
                   )}
                 >
                   {t}
-                  <span className="num rounded-full bg-white/5 px-1.5 text-[10px]">
+                  <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
                     {typeCounts[t]}
                   </span>
                 </button>
@@ -352,7 +290,7 @@ export function HoldingsPage() {
                         : (xirr.byTicker[r.ticker]!.rate as number) * 100
                     }
                     totalValue={totals.value}
-                    onOpen={() => navigate(`/stock/${r.ticker}`)}
+                    onOpen={() => navigate(assetHref(r.ticker, r.assetType))}
                     onBuy={() =>
                       setTrade({
                         ticker: r.ticker,
@@ -446,7 +384,7 @@ function HoldingRow({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index, 10) * 0.02 }}
       onClick={onOpen}
-      className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-white/[0.03]"
+      className="group cursor-pointer border-b border-border/40 align-middle transition-colors last:border-0 hover:bg-overlay/[0.03]"
     >
       {/* Asset */}
       <Td align="left">
@@ -597,7 +535,7 @@ function IconBtn({
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-white/5",
+        "inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-overlay/5",
         tone === "success" && "hover:text-success",
         tone === "danger" && "hover:text-danger",
         !tone && "hover:text-fg",
@@ -608,41 +546,3 @@ function IconBtn({
   );
 }
 
-function Metric({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "pos" | "neg";
-}) {
-  return (
-    <div>
-      <div className="label">{label}</div>
-      <div
-        className={cn(
-          "num mt-1 text-xl font-semibold",
-          tone === "pos" && "pos",
-          tone === "neg" && "neg",
-        )}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div
-          className={cn(
-            "num text-xs",
-            tone === "pos" && "pos",
-            tone === "neg" && "neg",
-            !tone && "text-fg-muted",
-          )}
-        >
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}

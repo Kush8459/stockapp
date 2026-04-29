@@ -3,6 +3,45 @@
 @tailwind utilities;
 
 @layer base {
+  /* Theme tokens. The app boots dark (matches the historical look) and
+     swaps to the light values whenever <html> carries the `light` class.
+     Values are unprefixed RGB triplets so Tailwind can fold them into
+     `rgb(... / <alpha-value>)` for class-level alpha (e.g. `bg-bg/70`). */
+  :root {
+    --color-bg: 7 9 13;
+    --color-bg-soft: 11 15 22;
+    --color-bg-card: 15 20 28;
+    --color-bg-elevated: 20 27 38;
+    --color-border: 28 36 49;
+    --color-border-strong: 42 52 68;
+    --color-fg: 231 236 243;
+    --color-fg-muted: 138 149 166;
+    --color-fg-subtle: 91 102 120;
+    --color-brand: 6 182 212;
+    --color-brand-fg: 4 21 28;
+    --color-overlay: 255 255 255;
+    --color-success: 16 185 129;
+    --color-danger: 239 68 68;
+    --color-warn: 245 158 11;
+  }
+  :root.light {
+    --color-bg: 248 250 252;
+    --color-bg-soft: 241 245 249;
+    --color-bg-card: 255 255 255;
+    --color-bg-elevated: 255 255 255;
+    --color-border: 226 232 240;
+    --color-border-strong: 203 213 225;
+    --color-fg: 15 23 42;
+    --color-fg-muted: 71 85 105;
+    --color-fg-subtle: 148 163 184;
+    --color-brand: 8 145 178;
+    --color-brand-fg: 255 255 255;
+    --color-overlay: 15 23 42;
+    --color-success: 5 150 105;
+    --color-danger: 220 38 38;
+    --color-warn: 217 119 6;
+  }
+
   html,
   body,
   #root {
@@ -13,6 +52,29 @@
     font-feature-settings: "cv11", "ss01";
     background-image: theme("backgroundImage.radial-fade");
     background-attachment: fixed;
+  }
+  /* The radial-fade image uses cyan + violet alphas that look right on the
+     dark base. Tone them down for the light base so the page doesn't read
+     as "tinted blob over white". */
+  :root.light body {
+    background-image: radial-gradient(
+        1200px 700px at 20% -10%,
+        rgba(6, 182, 212, 0.06),
+        transparent 55%
+      ),
+      radial-gradient(
+        900px 500px at 110% 10%,
+        rgba(139, 92, 246, 0.05),
+        transparent 55%
+      );
+  }
+  /* Re-tune card shadows for light mode — the dark inset highlight is
+     invisible on white surfaces, and the heavy drop shadow looks
+     overbearing on a near-white background. */
+  :root.light .shadow-card {
+    box-shadow:
+      0 1px 0 rgba(15, 23, 42, 0.04) inset,
+      0 10px 30px -16px rgba(15, 23, 42, 0.18);
   }
   ::selection {
     background: rgba(6, 182, 212, 0.3);
@@ -37,6 +99,16 @@
   .market-bar-scroll::-webkit-scrollbar {
     display: none;
   }
+  /* Generic invisible-scrollbar utility for places where a visible scrollbar
+     adds noise (modal bodies, side rails). The container is still scrollable
+     — the chrome is just hidden. */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
   /* Nicer scrollbar in the dashboard's inner panels (tables, dropdowns) */
   *::-webkit-scrollbar {
     height: 10px;
@@ -46,11 +118,11 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: #1c2431;
+    background: rgb(var(--color-border));
     border-radius: 9999px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: #2a3444;
+    background: rgb(var(--color-border-strong));
   }
 }
 
@@ -71,10 +143,16 @@
     @apply btn bg-brand text-brand-foreground hover:bg-brand/90;
   }
   .btn-ghost {
-    @apply btn bg-transparent text-fg-muted hover:bg-white/5 hover:text-fg;
+    @apply btn bg-transparent text-fg-muted hover:text-fg;
+  }
+  .btn-ghost:hover {
+    background-color: rgb(var(--color-overlay) / 0.05);
   }
   .btn-outline {
-    @apply btn border border-border text-fg hover:bg-white/5;
+    @apply btn border border-border text-fg;
+  }
+  .btn-outline:hover {
+    background-color: rgb(var(--color-overlay) / 0.05);
   }
   .btn-danger {
     @apply btn bg-danger/90 text-white hover:bg-danger;
