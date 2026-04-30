@@ -1,12 +1,17 @@
 app = 'stockapp-worker'
 primary_region = 'sin'
 
-[build]
-  dockerfile = 'Dockerfile'
-  [build.args]
-    TARGET = 'price-worker'
+# The worker is a singleton — running multiple copies double-polls Yahoo and
+# can race in the SIP scheduler. Pin to one machine.
+[deploy]
+  strategy = 'immediate'
 
 [[vm]]
   memory = '256mb'
   cpu_kind = 'shared'
   cpus = 1
+
+[build]
+  dockerfile = 'Dockerfile'
+  [build.args]
+    TARGET = 'price-worker'
