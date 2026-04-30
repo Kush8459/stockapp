@@ -64,7 +64,7 @@ func run() error {
 	defer db.Close()
 	log.Info().Str("host", cfg.Postgres.Host).Msg("postgres connected")
 
-	rdb, err := redisx.New(ctx, cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+	rdb, err := redisx.New(ctx, cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB, cfg.Redis.TLS)
 	if err != nil {
 		return err
 	}

@@ -41,6 +41,7 @@ type Redis struct {
 	Addr     string
 	Password string
 	DB       int
+	TLS      bool
 }
 
 type JWT struct {
@@ -94,6 +95,7 @@ func Load() (*Config, error) {
 	v.SetDefault("REDIS_ADDR", "localhost:6379")
 	v.SetDefault("REDIS_PASSWORD", "")
 	v.SetDefault("REDIS_DB", 0)
+	v.SetDefault("REDIS_TLS", false)
 
 	v.SetDefault("JWT_ACCESS_TTL", "15m")
 	v.SetDefault("JWT_REFRESH_TTL", "720h")
@@ -138,6 +140,7 @@ func Load() (*Config, error) {
 			Addr:     v.GetString("REDIS_ADDR"),
 			Password: v.GetString("REDIS_PASSWORD"),
 			DB:       v.GetInt("REDIS_DB"),
+			TLS:      v.GetBool("REDIS_TLS"),
 		},
 		JWT: JWT{
 			Secret:     v.GetString("JWT_SECRET"),
