@@ -50,15 +50,15 @@ export function MfReturnCalculator({ suggestedRate }: MfReturnCalculatorProps) {
 
   return (
     <section className="card p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="label flex items-center gap-2">
             <Calculator className="h-3.5 w-3.5" />
             Return calculator
           </div>
-          <div className="text-xs text-fg-muted">
+          <div className="mt-1.5 text-xs text-fg-muted">
             Project a what-if scenario at any expected return
-            {suggestedRate ? ` (default ${defaultRate}% — fund's recent CAGR)` : ""}.
+            {suggestedRate ? ` (default ${defaultRate.toFixed(2)}% — fund's recent CAGR)` : ""}.
           </div>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-border bg-bg-soft p-0.5">

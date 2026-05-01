@@ -65,7 +65,7 @@ export function SearchBar() {
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Search any Indian stock, ETF, or mutual fund…"
+          placeholder="Search stocks, ETFs, funds…"
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
@@ -86,7 +86,7 @@ export function SearchBar() {
               inputRef.current?.blur();
             }
           }}
-          className="input w-full pl-9 pr-16 text-sm"
+          className="input w-full pl-9 pr-9 text-sm sm:pr-16"
         />
         <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
           {isFetching && debounced.length >= 2 && (
@@ -105,7 +105,7 @@ export function SearchBar() {
               <X className="h-3.5 w-3.5" />
             </button>
           ) : (
-            <kbd className="kbd">⌘K</kbd>
+            <kbd className="kbd hidden sm:inline-flex">⌘K</kbd>
           )}
         </div>
       </div>

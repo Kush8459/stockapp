@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,9 +81,25 @@ func (h *Handler) categories(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// catalogRow is one fund row in the catalog response, enriched with the
+// latest NAV and 1Y / 3Y / 5Y returns derived from cached NAV history.
+type catalogRow struct {
+	Fund
+	Nav       *Nav     `json:"nav,omitempty"`
+	OneYear   *float64 `json:"oneYear,omitempty"`
+	ThreeYear *float64 `json:"threeYear,omitempty"`
+	FiveYear  *float64 `json:"fiveYear,omitempty"`
+}
+
 // catalog returns funds optionally filtered by category and free-text q,
-// each enriched with the latest NAV. NAV is fetched in parallel for the
-// page so a 24-fund page returns in roughly one mfapi RTT, not 24.
+// each enriched with the latest NAV plus 1Y / 3Y / 5Y returns. Returns are
+// computed from cached full NAV history (24h Redis TTL) so steady-state
+// requests are fast — the cold path fans out to mfapi in parallel.
+//
+// Sort options (?sort=...): oneYear-desc, oneYear-asc, threeYear-desc,
+// threeYear-asc, fiveYear-desc, fiveYear-asc. When sort is set we fetch
+// the entire filtered set before paginating; otherwise we paginate first
+// and only enrich the visible page.
 //
 // Pagination is offset-based — the in-memory catalog has stable ordering
 // (refreshed once per day) so successive page fetches don't shuffle
@@ -100,37 +117,145 @@ func (h *Handler) catalog(w http.ResponseWriter, r *http.Request) {
 			offset = n
 		}
 	}
-	funds, total := h.svc.Filter(
-		r.URL.Query().Get("category"),
-		r.URL.Query().Get("q"),
-		limit,
-		offset,
-	)
-	type row struct {
-		Fund
-		Nav *Nav `json:"nav,omitempty"`
-	}
-	out := make([]row, len(funds))
-	var wg sync.WaitGroup
-	for i := range funds {
-		out[i] = row{Fund: funds[i]}
-		wg.Add(1)
-		go func(idx int, f Fund) {
-			defer wg.Done()
-			nav, err := h.navFor(r.Context(), f)
-			if err != nil {
-				return
+	sortKey := r.URL.Query().Get("sort")
+	category := r.URL.Query().Get("category")
+	query := r.URL.Query().Get("q")
+
+	var rows []catalogRow
+	var total int
+
+	if sortKey != "" {
+		// Sort path: enrich every matched fund, sort, then paginate.
+		// Cost is dominated by uncached history fetches; subsequent calls
+		// hit Redis and are cheap.
+		all := h.svc.FilterAll(category, query)
+		total = len(all)
+		rows = make([]catalogRow, len(all))
+		var wg sync.WaitGroup
+		for i := range all {
+			wg.Add(1)
+			go func(idx int, f Fund) {
+				defer wg.Done()
+				rows[idx] = h.buildCatalogRow(r.Context(), f)
+			}(i, all[i])
+		}
+		wg.Wait()
+		sortCatalogRows(rows, sortKey)
+		end := offset + limit
+		if offset > len(rows) {
+			rows = []catalogRow{}
+		} else {
+			if end > len(rows) {
+				end = len(rows)
 			}
-			out[idx].Nav = &nav
-		}(i, funds[i])
+			rows = rows[offset:end]
+		}
+	} else {
+		// No sort: paginate first, only enrich the visible page.
+		funds, t := h.svc.Filter(category, query, limit, offset)
+		total = t
+		rows = make([]catalogRow, len(funds))
+		var wg sync.WaitGroup
+		for i := range funds {
+			wg.Add(1)
+			go func(idx int, f Fund) {
+				defer wg.Done()
+				rows[idx] = h.buildCatalogRow(r.Context(), f)
+			}(i, funds[i])
+		}
+		wg.Wait()
 	}
-	wg.Wait()
-	hasMore := offset+len(out) < total
+
+	hasMore := offset+len(rows) < total
 	httpx.JSON(w, http.StatusOK, map[string]any{
-		"items":   out,
+		"items":   rows,
 		"total":   total,
 		"offset":  offset,
 		"hasMore": hasMore,
+	})
+}
+
+// buildCatalogRow assembles one catalog row: NAV (preferring the worker's
+// real-time cache for held/SIP'd funds, falling back to cached history)
+// plus 1Y / 3Y / 5Y returns. Safe to call concurrently — every read goes
+// through cache or single-flight upstream fetch.
+func (h *Handler) buildCatalogRow(ctx context.Context, f Fund) catalogRow {
+	row := catalogRow{Fund: f}
+
+	// Real-time NAV from price.Cache wins when the worker has it (only
+	// true for held / SIP'd funds). Catalog browsers fall through to the
+	// history-derived NAV below.
+	if h.cache != nil {
+		if q, err := h.cache.Get(ctx, f.Ticker); err == nil && q != nil && q.Price.Sign() > 0 {
+			row.Nav = &Nav{
+				Value:     q.Price.String(),
+				ChangePct: q.ChangePct.String(),
+				AsOf:      q.UpdatedAt,
+				Stale:     time.Since(q.UpdatedAt) > 36*time.Hour,
+			}
+		}
+	}
+
+	hist, err := h.fetchFullHistory(ctx, f.SchemeCode)
+	if err != nil || len(hist) == 0 {
+		return row
+	}
+	last := hist[len(hist)-1]
+
+	if row.Nav == nil {
+		var changePct string
+		if len(hist) >= 2 {
+			prev := hist[len(hist)-2]
+			if prev.NAV > 0 {
+				delta := (last.NAV - prev.NAV) / prev.NAV * 100
+				changePct = fmt.Sprintf("%.4f", delta)
+			}
+		}
+		row.Nav = &Nav{
+			Value:     formatNav(last.NAV),
+			ChangePct: changePct,
+			AsOf:      last.When,
+			Stale:     time.Since(last.When) > 36*time.Hour,
+		}
+	}
+
+	row.OneYear = pointToPoint(hist, last.When.AddDate(-1, 0, 0), last.NAV)
+	row.ThreeYear = cagr(hist, last.When.AddDate(-3, 0, 0), last.NAV, 3)
+	row.FiveYear = cagr(hist, last.When.AddDate(-5, 0, 0), last.NAV, 5)
+	return row
+}
+
+// sortCatalogRows sorts in place by the requested return window. Rows
+// missing the return data sink to the bottom regardless of direction.
+func sortCatalogRows(rows []catalogRow, key string) {
+	asc := strings.HasSuffix(key, "-asc")
+	field := strings.TrimSuffix(strings.TrimSuffix(key, "-asc"), "-desc")
+	pick := func(r catalogRow) *float64 {
+		switch field {
+		case "oneYear":
+			return r.OneYear
+		case "threeYear":
+			return r.ThreeYear
+		case "fiveYear":
+			return r.FiveYear
+		}
+		return nil
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := pick(rows[i]), pick(rows[j])
+		if a == nil && b == nil {
+			return false
+		}
+		if a == nil {
+			return false
+		}
+		if b == nil {
+			return true
+		}
+		if asc {
+			return *a < *b
+		}
+		return *a > *b
 	})
 }
 
@@ -172,7 +297,10 @@ func (h *Handler) navFor(ctx context.Context, f Fund) (Nav, error) {
 	return h.fetchNAV(ctx, f.SchemeCode)
 }
 
-const navCacheKey = "mf:nav:%d"
+// v2: switched upstream URL from /latest to full history so we get the
+// previous-day NAV and can compute changePct. v1 entries (no changePct)
+// are bypassed by the version bump and expire naturally via TTL.
+const navCacheKey = "mf:nav:v2:%d"
 const navCacheTTL = 60 * time.Minute
 
 func (h *Handler) fetchNAV(ctx context.Context, schemeCode int) (Nav, error) {
@@ -202,7 +330,10 @@ func (h *Handler) fetchNAV(ctx context.Context, schemeCode int) (Nav, error) {
 		h.inflight.Delete(schemeCode)
 	}()
 
-	url := fmt.Sprintf("https://api.mfapi.in/mf/%d/latest", schemeCode)
+	// Full history (not /latest) so we get yesterday's NAV too and can
+	// compute the day's % change. mfapi returns Data sorted desc by date,
+	// so Data[0] is today and Data[1] is the prior business day.
+	url := fmt.Sprintf("https://api.mfapi.in/mf/%d", schemeCode)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		pending.err = err

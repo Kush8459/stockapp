@@ -251,8 +251,48 @@ export function HoldingsPage() {
             No holdings match your filters.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-sm">
+          <>
+            {/* Mobile: stacked cards. The 9-column desktop table requires
+                horizontal scroll on phones, which users don't expect. Each
+                card surfaces the same fields in a vertical layout instead. */}
+            <ul className="divide-y divide-border/40 md:hidden">
+              {rows.map((r) => {
+                const xirrEntry = xirr.byTicker[r.ticker];
+                const xirrPct =
+                  xirrEntry?.insufficient || xirrEntry?.rate == null
+                    ? null
+                    : (xirrEntry.rate as number) * 100;
+                const allocPct = totals.value > 0 ? (r.value / totals.value) * 100 : 0;
+                return (
+                  <HoldingCardMobile
+                    key={r.id}
+                    r={r}
+                    xirrPct={xirrPct}
+                    allocPct={allocPct}
+                    onOpen={() => navigate(assetHref(r.ticker, r.assetType))}
+                    onBuy={() =>
+                      setTrade({
+                        ticker: r.ticker,
+                        side: "buy",
+                        assetType: r.assetType as Holding["assetType"],
+                      })
+                    }
+                    onSell={() =>
+                      setTrade({
+                        ticker: r.ticker,
+                        side: "sell",
+                        assetType: r.assetType as Holding["assetType"],
+                      })
+                    }
+                    onAlert={() => setAlertFor(r.ticker)}
+                  />
+                );
+              })}
+            </ul>
+
+            {/* Desktop: full sortable table. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full table-fixed text-sm">
               <colgroup>
                 <col className="w-[20%] min-w-[180px]" />
                 <col className="w-[8%]  min-w-[70px]" />
@@ -310,7 +350,8 @@ export function HoldingsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
 
@@ -473,6 +514,111 @@ function HoldingRow({
         </div>
       </Td>
     </motion.tr>
+  );
+}
+
+function HoldingCardMobile({
+  r,
+  xirrPct,
+  allocPct,
+  onOpen,
+  onBuy,
+  onSell,
+  onAlert,
+}: {
+  r: EnrichedRow;
+  xirrPct: number | null;
+  allocPct: number;
+  onOpen: () => void;
+  onBuy: () => void;
+  onSell: () => void;
+  onAlert: () => void;
+}) {
+  return (
+    <li
+      onClick={onOpen}
+      className="cursor-pointer px-4 py-3 transition-colors hover:bg-overlay/[0.03]"
+    >
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
+            r.assetType === "mf"
+              ? "bg-violet-500/15 text-violet-300"
+              : "bg-cyan-500/15 text-cyan-300",
+          )}
+        >
+          {r.ticker.slice(0, 2)}
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <div className="truncate text-sm font-medium">{r.ticker}</div>
+          <div className="num text-[11px] text-fg-muted">
+            {r.qty.toLocaleString(undefined, { maximumFractionDigits: 8 })} × {formatCurrency(r.avg)}
+          </div>
+        </div>
+        <div className="text-right leading-tight">
+          <div className="num text-sm font-medium">{formatCurrency(r.value)}</div>
+          <div className={cn("num text-[11px] font-medium", r.pnl >= 0 ? "pos" : "neg")}>
+            {r.pnl >= 0 ? "+" : ""}
+            {formatCurrency(r.pnl)} · {formatPercent(r.pnlPct)}
+          </div>
+        </div>
+      </div>
+
+      <div className="num mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted">
+        <span>
+          Day{" "}
+          <span className={r.dayChange >= 0 ? "pos" : "neg"}>
+            {formatPercent(r.dayChange)}
+          </span>
+        </span>
+        <span className="text-fg-subtle">·</span>
+        <span>
+          XIRR{" "}
+          <span className={xirrPct == null ? "text-fg-muted" : xirrPct >= 0 ? "pos" : "neg"}>
+            {xirrPct == null ? "—" : formatPercent(xirrPct)}
+          </span>
+        </span>
+        <span className="text-fg-subtle">·</span>
+        <span>Alloc {allocPct.toFixed(1)}%</span>
+      </div>
+
+      <div
+        className="mt-3 flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onBuy}
+          className="btn-outline h-9 flex-1 px-2 text-xs"
+        >
+          <ArrowDownLeft className="h-3.5 w-3.5" /> Buy
+        </button>
+        <button
+          type="button"
+          onClick={onSell}
+          className="btn-outline h-9 flex-1 px-2 text-xs"
+        >
+          <ArrowUpRight className="h-3.5 w-3.5" /> Sell
+        </button>
+        <button
+          type="button"
+          onClick={onAlert}
+          aria-label="Set alert"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border text-fg-muted hover:bg-overlay/5 hover:text-fg"
+        >
+          <Bell className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="Open detail"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border text-fg-muted hover:bg-overlay/5 hover:text-fg"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </li>
   );
 }
 

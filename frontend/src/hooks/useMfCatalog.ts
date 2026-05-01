@@ -18,7 +18,20 @@ export interface MfFund {
   planType: string;
   option: string;
   nav?: MfNav;
+  // Catalog-embedded returns (% — absolute for 1Y, annualised CAGR for 3Y/5Y).
+  // Optional: missing means the fund's history doesn't reach back that far.
+  oneYear?: number;
+  threeYear?: number;
+  fiveYear?: number;
 }
+
+export type MfSortKey =
+  | "oneYear-desc"
+  | "oneYear-asc"
+  | "threeYear-desc"
+  | "threeYear-asc"
+  | "fiveYear-desc"
+  | "fiveYear-asc";
 
 export interface MfCategory {
   category: string;
@@ -53,15 +66,21 @@ interface MfCatalogPage {
  * read `funds` and slice — the trailing pages aren't fetched until
  * something explicitly calls `fetchNextPage()`.
  */
-export function useMfCatalog(args: { category?: string; q?: string; limit?: number }) {
-  const { category = "", q = "", limit = 24 } = args;
+export function useMfCatalog(args: {
+  category?: string;
+  q?: string;
+  limit?: number;
+  sort?: MfSortKey | "";
+}) {
+  const { category = "", q = "", limit = 24, sort = "" } = args;
   const query = useInfiniteQuery({
-    queryKey: ["mf", "catalog", category, q, limit],
+    queryKey: ["mf", "catalog", category, q, limit, sort],
     initialPageParam: 0,
     queryFn: async ({ pageParam }): Promise<MfCatalogPage> => {
       const params = new URLSearchParams();
       if (category) params.set("category", category);
       if (q) params.set("q", q);
+      if (sort) params.set("sort", sort);
       params.set("limit", String(limit));
       params.set("offset", String(pageParam));
       const { data } = await api.get<MfCatalogPage>(`/mf/catalog?${params}`);

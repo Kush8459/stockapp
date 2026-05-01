@@ -176,3 +176,14 @@
     @apply text-danger;
   }
 }
+
+/* Recharts touch behavior. By default the browser treats any touch-drag as a
+   page scroll (touch-action: auto), which steals the touchmove events Recharts
+   needs for its tooltip. `pan-y` keeps vertical page scrolling intact while
+   letting Recharts own horizontal gestures — so a finger drag across a chart
+   scrubs the tooltip on mobile, matching desktop hover behavior. */
+.recharts-wrapper,
+.recharts-responsive-container,
+.recharts-surface {
+  touch-action: pan-y;
+}

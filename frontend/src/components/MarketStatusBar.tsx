@@ -26,7 +26,7 @@ export function MarketStatusBar() {
     <div
       title={tooltipFor(status)}
       className={cn(
-        "flex h-10 shrink-0 items-center gap-2 rounded-lg border bg-bg-soft/50 px-3",
+        "flex h-10 shrink-0 items-center gap-2 rounded-lg border bg-bg-soft/50 px-2.5 sm:px-3",
         tone.border,
       )}
     >
@@ -40,8 +40,8 @@ export function MarketStatusBar() {
       <span className={cn("text-sm font-medium", tone.text)}>
         {shortLabel(status)}
       </span>
-      <span className="text-fg-subtle">·</span>
-      <span className="num text-xs text-fg-muted">{nowIST}</span>
+      <span className="hidden text-fg-subtle sm:inline">·</span>
+      <span className="num hidden text-xs text-fg-muted sm:inline">{nowIST}</span>
     </div>
   );
 }

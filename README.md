@@ -13,9 +13,10 @@ architecture that preserves clean service seams for future extraction.
 > See [`docs/roadmap.md`](docs/roadmap.md) for the original product spec and
 > [`docs/architecture.md`](docs/architecture.md) for the design decisions.
 
-**Live demo:** _coming soon_ — deploying free on Oracle Cloud, see
-[`docs/oracle-deploy.md`](docs/oracle-deploy.md). For other hosts (Railway,
-Fly.io, Hetzner, AWS), see [`docs/deployment.md`](docs/deployment.md).
+**Live demo:** deployed on **Neon + Upstash + Fly.io + Vercel** — full
+walkthrough in [`docs/deployment.md`](docs/deployment.md) (Option B).
+Setup takes ~60 min, runs on the Fly trial credit for ~2 months, then
+~₹170/mo with the always-on price worker.
 
 ---
 

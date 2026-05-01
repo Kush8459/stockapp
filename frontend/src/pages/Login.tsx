@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, Loader2, Wallet2 } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2, Wallet2 } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 
@@ -9,8 +9,9 @@ export function LoginPage() {
   const login = useAuth((s) => s.login);
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("demo@stockapp.dev");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,15 +66,26 @@ export function LoginPage() {
             <label className="label" htmlFor="password">
               Password
             </label>
-            <input
-              id="password"
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                id="password"
+                className="input pr-10"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-fg-muted hover:text-fg"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           {error && (
             <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -92,11 +104,6 @@ export function LoginPage() {
             Create one
           </Link>
         </p>
-
-        <div className="mt-8 rounded-lg border border-border/80 bg-bg-soft/70 p-3 text-xs text-fg-muted">
-          <span className="text-fg">Demo:</span> demo@stockapp.dev / demo1234 (run{" "}
-          <code className="kbd">go run ./cmd/seed</code> first)
-        </div>
       </motion.div>
     </AuthLayout>
   );

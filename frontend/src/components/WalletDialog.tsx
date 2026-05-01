@@ -49,8 +49,8 @@ export function WalletDialog({
           <Header onClose={() => onOpenChange(false)} />
 
           {/* Mode toggle */}
-          <div className="border-b border-border/70 px-6 pt-4">
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-bg-soft p-0.5 w-fit">
+          <div className="border-b border-border/70 px-6 py-4">
+            <div className="mx-auto flex w-fit items-center gap-1 rounded-lg border border-border bg-bg-soft p-0.5">
               <ModeBtn
                 active={mode === "deposit"}
                 onClick={() => setMode("deposit")}
@@ -372,24 +372,26 @@ function MethodPicker({
   return (
     <div className="space-y-2">
       <label className="label">Method</label>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {methods.map((m) => (
           <button
             key={m.id}
             type="button"
             onClick={() => onChange(m.id)}
             className={cn(
-              "rounded-lg border p-2.5 text-left transition-colors",
+              "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors sm:flex-col sm:items-start sm:gap-0 sm:p-2.5",
               value === m.id
                 ? "border-brand bg-brand/10"
                 : "border-border bg-bg-soft hover:border-border-strong",
             )}
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
+            <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
               {m.icon}
               {m.label}
             </div>
-            <div className="mt-1 text-[10px] text-fg-subtle">{m.note}</div>
+            <div className="text-[11px] text-fg-subtle sm:mt-1 sm:text-[10px]">
+              {m.note}
+            </div>
           </button>
         ))}
       </div>

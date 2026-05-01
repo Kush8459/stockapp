@@ -42,7 +42,12 @@ Public. Returns the server's wall-clock time for smoke-tests.
 ```
 
 201 → `{ accessToken, refreshToken, user: { id, email, displayName } }`.
-409 `email_taken` if the email already exists.
+
+Validation:
+- `400 invalid_email` — email doesn't parse as RFC 5322
+- `400 weak_password` — password shorter than 8 characters
+- `400 password_too_long` — password longer than 30 characters (bcrypt truncates at 72 bytes; we cap lower so two distinct long passwords can't both unlock the account)
+- `409 email_taken` — email already registered (case-insensitive; addresses are normalised to lowercase before insert)
 
 ### `POST /api/v1/auth/login`
 
@@ -538,13 +543,26 @@ in retail-app order, with counts.
 }
 ```
 
-### `GET /api/v1/mf/catalog?category=&q=&offset=0&limit=24`
+### `GET /api/v1/mf/catalog?category=&q=&offset=0&limit=24&sort=`
 
-Paginated. Each item is a Direct-Plan-Growth fund with metadata + the
-latest NAV. NAV resolution per item: `price.Cache` (live for held funds)
-→ 1-h Redis cache → mfapi `/latest`. Goroutines run NAV fetches in
-parallel; in-flight de-dup ensures concurrent page-loads collapse to one
-upstream call per scheme.
+Paginated. Each item is a Direct-Plan-Growth fund with metadata, latest
+NAV, and 1Y / 3Y / 5Y returns. Returns are computed from the cached full
+NAV history (`mf:history:full:{code}`, 24-h TTL) so steady-state requests
+are cheap; the cold path fans out to mfapi in parallel. NAV resolution
+per item: `price.Cache` (live for held funds) → cached history (returns +
+NAV fallback). In-flight de-dup ensures concurrent page-loads collapse to
+one upstream call per scheme.
+
+`?sort=` (optional) — orders the entire filtered set by a return window
+before paginating. Funds missing the requested return field sink to the
+bottom regardless of direction. Allowed values:
+
+- `oneYear-desc` / `oneYear-asc`
+- `threeYear-desc` / `threeYear-asc`
+- `fiveYear-desc` / `fiveYear-asc`
+
+Without `sort`, pagination uses the catalog's natural order and only the
+visible page gets enriched with returns.
 
 ```json
 {
@@ -562,7 +580,10 @@ upstream call per scheme.
         "changePct": "0.42",
         "asOf": "2026-04-26T16:30:00Z",
         "stale": false
-      }
+      },
+      "oneYear": 18.32,
+      "threeYear": 14.20,
+      "fiveYear": 16.74
     }
   ],
   "total": 47,

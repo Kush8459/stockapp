@@ -14,6 +14,7 @@ import {
 import { LiveChart, type Point } from "@/components/LiveChart";
 import { RangeSelector } from "@/components/RangeSelector";
 import { LiveBadge } from "@/components/LiveBadge";
+import { WatchlistPopover } from "@/components/WatchlistPopover";
 import { MfInvestDialog } from "@/components/MfInvestDialog";
 import { MfMetricsCard } from "@/components/MfMetricsCard";
 import { MfRedeemDialog } from "@/components/MfRedeemDialog";
@@ -124,26 +125,25 @@ export function MutualFundDetailPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="flex flex-wrap items-end justify-between gap-4"
+        className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between"
       >
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-fg-muted">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-wider text-fg-muted">
             <span>{f.amc}</span>
-            <span className="text-fg-subtle">·</span>
             <span className="chip text-[10px] normal-case tracking-normal">
               {f.category}
             </span>
             <span className="text-fg-subtle">·</span>
             <span>{f.planType} Plan · {f.option}</span>
           </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <h1 className="mt-1.5 break-words text-lg font-semibold tracking-tight sm:text-xl lg:text-2xl">
             {f.name}
           </h1>
         </div>
-        <div className="flex items-end gap-5">
-          <div className="text-right">
+        <div className="flex items-center justify-between gap-3 lg:items-end lg:gap-5">
+          <div className="text-left lg:text-right">
             <div className="label">NAV</div>
-            <div className="num text-2xl font-semibold">
+            <div className="num text-xl font-semibold sm:text-2xl">
               {formatCurrency(livePrice)}
             </div>
             {navAsOf && (
@@ -154,19 +154,22 @@ export function MutualFundDetailPage() {
               </div>
             )}
           </div>
-          {fund.data.nav?.changePct && (
-            <span
-              className={cn(
-                "chip",
-                dayChangePct >= 0
-                  ? "border-success/30 text-success"
-                  : "border-danger/30 text-danger",
-              )}
-            >
-              {formatPercent(dayChangePct)} d
-            </span>
-          )}
-          <LiveBadge connected={connected} hasQuote={hasLiveStream} />
+          <div className="flex items-center gap-2">
+            {fund.data.nav?.changePct && (
+              <span
+                className={cn(
+                  "chip",
+                  dayChangePct >= 0
+                    ? "border-success/30 text-success"
+                    : "border-danger/30 text-danger",
+                )}
+              >
+                {formatPercent(dayChangePct)} d
+              </span>
+            )}
+            <LiveBadge connected={connected} hasQuote={hasLiveStream} />
+            <WatchlistPopover ticker={ticker} assetType="mf" />
+          </div>
         </div>
       </motion.header>
 
@@ -420,13 +423,13 @@ function HeatmapCell({ cell, maxAbs }: { cell: ReturnsCell; maxAbs: number }) {
   if (cell.value === undefined || cell.value === null) {
     return (
       <div
-        className="flex h-20 flex-col justify-between rounded-lg border border-dashed border-border/40 bg-bg-soft/30 p-2.5"
+        className="flex h-16 flex-col justify-between rounded-lg border border-dashed border-border/40 bg-bg-soft/30 p-2 sm:h-20 sm:p-2.5"
         title={`${cell.label} — no data yet`}
       >
         <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
           {cell.label}
         </div>
-        <div className="num text-sm text-fg-subtle">—</div>
+        <div className="num text-center text-xs text-fg-subtle sm:text-sm">—</div>
       </div>
     );
   }
@@ -436,7 +439,7 @@ function HeatmapCell({ cell, maxAbs }: { cell: ReturnsCell; maxAbs: number }) {
   return (
     <div
       title={`${cell.label} · ${formatPercent(cell.value)} ${cell.annualized ? "p.a." : "absolute"}`}
-      className="flex h-20 flex-col justify-between rounded-lg border p-2.5 transition-transform hover:scale-[1.03]"
+      className="flex h-16 flex-col justify-between overflow-hidden rounded-lg border p-2 transition-transform hover:scale-[1.03] sm:h-20 sm:p-2.5"
       style={{ backgroundColor: tone.fill, borderColor: tone.border }}
     >
       <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-fg-muted">
@@ -446,12 +449,14 @@ function HeatmapCell({ cell, maxAbs }: { cell: ReturnsCell; maxAbs: number }) {
         </span>
       </div>
       <div
-        className="num flex items-center gap-1 text-sm font-semibold"
+        className="num flex items-center justify-center gap-1 text-xs font-semibold tabular-nums sm:text-sm"
         style={{ color: tone.text }}
       >
-        <ArrowIcon className="h-3.5 w-3.5" />
-        {positive ? "+" : ""}
-        {cell.value.toFixed(2)}%
+        <ArrowIcon className="hidden h-3.5 w-3.5 shrink-0 sm:inline-block" />
+        <span className="truncate">
+          {positive ? "+" : ""}
+          {cell.value.toFixed(2)}%
+        </span>
       </div>
     </div>
   );

@@ -76,7 +76,7 @@ export function SipsPage() {
         </button>
       </header>
 
-      <section className="grid grid-cols-3 gap-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Metric label="Active" value={totals.activeCount.toString()} tone="brand" />
         <Metric
           label="Monthly commitment"
@@ -94,20 +94,20 @@ export function SipsPage() {
               {data.length} total · {totals.activeCount} running
             </div>
           </div>
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-bg-soft p-0.5">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-bg-soft p-0.5 sm:gap-1">
             {(["all", "active", "paused", "cancelled"] as StatusFilter[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium capitalize transition-colors",
+                  "flex items-center gap-1 px-2 py-1.5 text-xs font-medium capitalize transition-colors sm:gap-1.5 sm:px-3",
                   statusFilter === s
                     ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
                 )}
               >
                 {s}
-                <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
+                <span className="num rounded-full bg-overlay/5 px-1 text-[10px] sm:px-1.5">
                   {counts[s]}
                 </span>
               </button>

@@ -113,6 +113,10 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "weak_password", "password must be at least 8 characters"))
 		return
 	}
+	if len(req.Password) > 30 {
+		httpx.Error(w, r, httpx.NewError(http.StatusBadRequest, "password_too_long", "password must be at most 30 characters"))
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {

@@ -161,10 +161,10 @@ export function TradeDialog({
                 {side === "buy" ? "Buy" : "Sell"}{" "}
                 <span className="text-brand">{ticker}</span>
               </Dialog.Title>
-              <Dialog.Description className="text-sm text-fg-muted">
+              <Dialog.Description className="sr-only">
                 {side === "buy"
-                  ? "Add to your position. Cost basis updates with a weighted average."
-                  : "Reduce your position. Cannot exceed current quantity."}
+                  ? "Buy more of this position."
+                  : "Sell from your position."}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>

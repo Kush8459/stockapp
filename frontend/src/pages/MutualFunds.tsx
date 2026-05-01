@@ -14,6 +14,7 @@ import {
   useMfCatalog,
   useMfCategories,
   type MfFund,
+  type MfSortKey,
 } from "@/hooks/useMfCatalog";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
@@ -31,6 +32,19 @@ export function MutualFundsPage() {
   const [category, setCategory] = useState<string>(initialCategory);
   const [rawQuery, setRawQuery] = useState("");
   const query = useDebounce(rawQuery, 250);
+  const initialSort = (searchParams.get("sort") ?? "") as MfSortKey | "";
+  const [sort, setSort] = useState<MfSortKey | "">(initialSort);
+
+  // Mirror sort to URL like category, so deep links keep the chosen order.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (sort) next.set("sort", sort);
+    else next.delete("sort");
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sort]);
 
   // Keep the URL in sync with the active category — makes detail-page
   // "See all" deep-links work and lets users share filtered views.
@@ -52,6 +66,7 @@ export function MutualFundsPage() {
     category: category === ALL_CATEGORIES ? "" : category,
     q: query,
     limit: 30,
+    sort,
   });
 
   // Live NAVs from the WS stream override the snapshot returned in
@@ -161,8 +176,8 @@ export function MutualFundsPage() {
         ))}
       </div>
 
-      {/* Result count + state */}
-      <div className="flex items-center justify-between text-xs text-fg-muted">
+      {/* Result count + sort + state */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-fg-muted">
         <span>
           {catalog.isLoading
             ? "Loading…"
@@ -174,9 +189,28 @@ export function MutualFundsPage() {
                 query ? ` matching "${query}"` : ""
               }`}
         </span>
-        {catalog.isFetching && !catalog.isFetchingNextPage && !catalog.isLoading && (
-          <span className="text-fg-subtle">refreshing…</span>
-        )}
+        <div className="flex items-center gap-2">
+          {catalog.isFetching && !catalog.isFetchingNextPage && !catalog.isLoading && (
+            <span className="text-fg-subtle">refreshing…</span>
+          )}
+          <label className="flex items-center gap-1.5">
+            <span className="text-fg-subtle">Sort</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as MfSortKey | "")}
+              className="input h-8 !py-0 pr-7 text-xs"
+              aria-label="Sort funds"
+            >
+              <option value="">Default</option>
+              <option value="oneYear-desc">1Y return · High → Low</option>
+              <option value="oneYear-asc">1Y return · Low → High</option>
+              <option value="threeYear-desc">3Y CAGR · High → Low</option>
+              <option value="threeYear-asc">3Y CAGR · Low → High</option>
+              <option value="fiveYear-desc">5Y CAGR · High → Low</option>
+              <option value="fiveYear-asc">5Y CAGR · Low → High</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       {/* Fund grid */}
@@ -281,6 +315,7 @@ function FundCard({
 }) {
   const nav = fund.nav ? toNum(fund.nav.value) : 0;
   const changePct = fund.nav?.changePct ? toNum(fund.nav.changePct) : null;
+  const oneYear = typeof fund.oneYear === "number" ? fund.oneYear : null;
   const isOwned = (ownedUnits ?? 0) > 0;
   const hasSip = !!activeSip;
 
@@ -311,8 +346,8 @@ function FundCard({
       </Link>
 
       {/* NAV */}
-      <div className="mt-4 flex items-end justify-between border-t border-border/60 pt-3">
-        <div>
+      <div className="mt-4 flex items-end justify-between gap-3 border-t border-border/60 pt-3">
+        <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-wider text-fg-muted">
             NAV
           </div>
@@ -323,25 +358,43 @@ function FundCard({
           ) : (
             <div className="num mt-0.5 text-sm text-fg-subtle">—</div>
           )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {oneYear !== null && (
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wider text-fg-muted">
+                1Y return
+              </div>
+              <div
+                className={cn(
+                  "num mt-0.5 text-lg font-semibold",
+                  oneYear >= 0 ? "pos" : "neg",
+                )}
+              >
+                {oneYear >= 0 ? "+" : ""}
+                {oneYear.toFixed(2)}%
+              </div>
+            </div>
+          )}
           {changePct !== null && (
             <div
               className={cn(
-                "num text-[11px]",
+                "num text-[10px]",
                 changePct >= 0 ? "pos" : "neg",
               )}
             >
               {changePct >= 0 ? "+" : ""}
-              {changePct.toFixed(2)}% d
+              {changePct.toFixed(2)}% · 1D
             </div>
           )}
+          <OwnershipBadge
+            isOwned={isOwned}
+            ownedUnits={ownedUnits}
+            nav={nav}
+            activeSip={activeSip}
+            hasSip={hasSip}
+          />
         </div>
-        <OwnershipBadge
-          isOwned={isOwned}
-          ownedUnits={ownedUnits}
-          nav={nav}
-          activeSip={activeSip}
-          hasSip={hasSip}
-        />
       </div>
 
       {/* Ownership progress bar — only when user holds units, shows day's

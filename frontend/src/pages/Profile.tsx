@@ -146,26 +146,30 @@ function TabSidebar({
 
   return (
     <>
-      {/* Mobile: horizontal scrolling tab strip. Saves vertical real estate
-          and keeps every tab one tap away. */}
-      <nav className="card scrollbar-none flex gap-1 overflow-x-auto p-2 lg:hidden">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onChange(t.id)}
-            className={cn(
-              "flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-              active === t.id
-                ? "bg-overlay/5 text-fg"
-                : "text-fg-muted hover:bg-overlay/5 hover:text-fg",
-            )}
-          >
-            <t.icon className="h-4 w-4" />
-            <span>{t.label}</span>
-          </button>
-        ))}
-      </nav>
+      {/* Mobile: native grouped picker. With 11 tabs, a horizontal scroll
+          buries most of them off-screen — a select shows everything in one
+          tap and keeps the tab list compact. */}
+      <div className="card p-2 lg:hidden">
+        <label htmlFor="profile-tab" className="sr-only">
+          Section
+        </label>
+        <select
+          id="profile-tab"
+          value={active}
+          onChange={(e) => onChange(e.target.value as TabId)}
+          className="input w-full pr-8"
+        >
+          {groups.map(([group, items]) => (
+            <optgroup key={group} label={group}>
+              {items.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
 
       {/* Desktop: grouped vertical sidebar. */}
       <nav className="card hidden h-fit flex-col gap-3 p-3 lg:sticky lg:top-32 lg:flex">

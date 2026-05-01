@@ -9,7 +9,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Bell,
-  Building2,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -175,17 +174,14 @@ export function StockHero({
       {/* ── Headline row: ticker + price + chips ─────────────── */}
       <div className="relative grid grid-cols-1 gap-4 p-6 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-fg-muted">
-            <span>{holding?.assetType ?? "stock"}</span>
-            {f?.sector && (
-              <>
-                <span className="text-fg-subtle">·</span>
-                <span className="chip text-[10px] normal-case tracking-normal">
-                  <Building2 className="h-2.5 w-2.5" />
-                  {f.sector}
-                </span>
-              </>
-            )}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-fg-muted">
+              <span>{holding?.assetType ?? "stock"}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
+              <LiveBadge connected={connected} hasQuote={hasLiveStream} />
+              <WatchlistPopover ticker={ticker} assetType={holding?.assetType} />
+            </div>
           </div>
           <h1 className="num mt-1 text-3xl font-semibold tracking-tight md:text-4xl">
             {ticker}
@@ -197,8 +193,8 @@ export function StockHero({
           )}
         </div>
 
-        <div className="flex flex-wrap items-end justify-end gap-3">
-          <div className="text-right">
+        <div className="flex flex-wrap items-end gap-3 lg:justify-end">
+          <div className="text-left lg:text-right">
             <div className="num text-[10px] uppercase tracking-wider text-fg-muted">
               Price
             </div>
@@ -229,9 +225,11 @@ export function StockHero({
             )}
           </div>
 
-          <PulsePill positive={positive} pct={dayChangePct} Arrow={Arrow} />
+          <div className="w-full lg:w-auto">
+            <PulsePill positive={positive} pct={dayChangePct} Arrow={Arrow} />
+          </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="hidden items-center gap-1.5 lg:flex">
             <LiveBadge connected={connected} hasQuote={hasLiveStream} />
             <WatchlistPopover ticker={ticker} assetType={holding?.assetType} />
           </div>

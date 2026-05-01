@@ -205,6 +205,28 @@ func (s *Service) Filter(category, query string, limit, offset int) (funds []Fun
 	return out, matched
 }
 
+// FilterAll returns every fund matching category + query, with no
+// pagination applied. Caller owns the sort + paginate. Used by the
+// catalog handler when a return-based sort is requested — sorting
+// requires the full filtered set in memory before slicing a page.
+func (s *Service) FilterAll(category, query string) []Fund {
+	cat := strings.TrimSpace(category)
+	q := strings.ToLower(strings.TrimSpace(query))
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Fund, 0)
+	for _, f := range s.funds {
+		if cat != "" && !strings.EqualFold(f.Category, cat) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(f.Name), q) && !strings.Contains(strings.ToLower(f.AMC), q) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // Categories returns each category and the number of funds in it. The order
 // is the conventional retail-app order (equity → tax → hybrid → debt →
 // index/other) rather than alphabetical.

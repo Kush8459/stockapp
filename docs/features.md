@@ -13,6 +13,10 @@ and which frontend page / component surfaces it.
 | What | Where |
 |---|---|
 | Register with email + password (bcrypt cost 10) | `internal/user` · `/login`, `/register` pages |
+| Password length policy: **8–30 chars** (lower bound for strength, upper bound below bcrypt's 72-byte truncation so distinct long passwords can't collide) | `user.Handler.register` |
+| Email normalised to lowercase + trimmed before insert; `email` column has UNIQUE constraint, duplicate registrations return `409 email_taken` | same |
+| Login + register both rate-limited via shared `httpx.RateLimiter` middleware (mitigates credential stuffing) | `user.Handler.Routes` |
+| Show / hide password toggle on both pages (Eye / EyeOff icon) | `pages/Login.tsx` · `pages/Register.tsx` |
 | JWT access + refresh tokens (HS256) | `internal/auth` |
 | Transparent refresh on 401 via axios interceptor | `frontend/src/lib/api.ts` |
 | Auth middleware on every protected route | `internal/auth/context.go` |
@@ -327,9 +331,12 @@ of AMFI's NAV file) — no curated fund list anywhere in the codebase.
 | Tickers use the canonical `MF<schemeCode>` shape (e.g., `MF120586`); transactions and SIPs store this verbatim | `price.ParseMFTicker` · `IsMFTicker` |
 | Legacy short demo tickers (`AXISBLUE`, `PPFAS`, `QUANTSM`, `MIRAE`) kept as a back-compat shim in `MFSchemes` | `internal/price/mfapi.go` |
 | `/mf/categories` returns `{category, count}` rows in retail-app order | `mf.Service.Categories` |
-| `/mf/catalog?category=&q=&offset=&limit=` paginated, returns `{items, total, offset, hasMore}` | `mf.Handler.catalog` |
-| NAV resolution per card (parallel goroutines): live `price.Cache` → 1-h Redis cache → mfapi `/latest`; in-flight de-dup via `sync.Map` so 50 concurrent page-loads make 1 upstream call per scheme | `mf.Handler.navFor` · `fetchNAV` |
-| Page UI: search bar, category chips with live counts, card grid, infinite scroll, lumpsum/SIP CTA buttons per card | `pages/MutualFunds.tsx` |
+| `/mf/catalog?category=&q=&offset=&limit=&sort=` paginated, returns `{items, total, offset, hasMore}` with `oneYear` / `threeYear` / `fiveYear` returns embedded per item | `mf.Handler.catalog` · `buildCatalogRow` |
+| Returns + day-change derived from cached full NAV history (`mf:history:full:{code}`, 24-h TTL) — sourcing both NAV+changePct and 1Y/3Y/5Y from one cache entry. NAV cache key is versioned (`mf:nav:v2:{code}`) so old `/latest`-derived entries without changePct die off naturally | `mf.Handler.buildCatalogRow` · `fetchFullHistory` |
+| `?sort=` param (`oneYear-desc`, `threeYear-desc`, `fiveYear-asc`, etc.) — fetches the entire filtered set, sorts by the chosen return window, then paginates. Funds missing the return field sink to the bottom regardless of direction | `mf.Handler.catalog` · `sortCatalogRows` · `Service.FilterAll` |
+| Live `price.Cache` overrides cached NAV for held / SIP'd funds; in-flight de-dup via `sync.Map` so concurrent page-loads collapse to one upstream call per scheme | `mf.Handler.buildCatalogRow` |
+| Page UI: search bar, category chips with live counts, **sort dropdown (default · 1Y · 3Y · 5Y)** persisted to URL, card grid showing NAV + 1Y return + small 1D line, infinite scroll, lumpsum/SIP CTA buttons per card | `pages/MutualFunds.tsx` |
+| Watchlist support — Watch button on the MF detail page maps the fund into any of the user's watchlists (`assetType: "mf"`). Same multi-list popover as the stock detail page | `components/WatchlistPopover.tsx` · `pages/MutualFundDetail.tsx` |
 | `MfInvestDialog` — single dialog with Lumpsum / SIP toggle. Lumpsum: amount → units = amount / NAV → POST `/transactions` (`assetType=mf`). SIP: amount + frequency + start date → POST `/sips` | `components/MfInvestDialog.tsx` |
 | **Real-time NAVs for held funds** — the price worker discovers MF tickers from `holdings WHERE asset_type='mf'` ∪ `sip_plans WHERE asset_type='mf' AND status='active'` ∪ legacy `MFSchemes`, polls each via mfapi every 30 min. New buys join the live stream within one tick | `cmd/price-worker.mfTickerDiscovery` · `price.RunMFAPIFeed` |
 

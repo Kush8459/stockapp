@@ -116,7 +116,7 @@ export function TransactionsPage() {
                 key={s}
                 onClick={() => setSideFilter(s)}
                 className={cn(
-                  "px-3 py-1.5 text-xs font-medium capitalize transition-colors",
+                  "px-2.5 py-1.5 text-xs font-medium capitalize transition-colors sm:px-3",
                   sideFilter === s
                     ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
@@ -127,20 +127,20 @@ export function TransactionsPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-bg-soft p-0.5">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border bg-bg-soft p-0.5 sm:gap-1">
             {(["all", "manual", "sip", "alert"] as SourceFilter[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setSourceFilter(s)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium capitalize transition-colors",
+                  "flex items-center gap-1 px-2 py-1.5 text-xs font-medium capitalize transition-colors sm:gap-1.5 sm:px-3",
                   sourceFilter === s
                     ? "rounded-md bg-overlay/10 text-fg"
                     : "text-fg-muted hover:text-fg",
                 )}
               >
                 {s}
-                <span className="num rounded-full bg-overlay/5 px-1.5 text-[10px]">
+                <span className="num rounded-full bg-overlay/5 px-1 text-[10px] sm:px-1.5">
                   {sourceCounts[s] ?? 0}
                 </span>
               </button>

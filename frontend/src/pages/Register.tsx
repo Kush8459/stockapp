@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, Loader2, Wallet2 } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2, Wallet2 } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import { AuthLayout } from "./Login";
@@ -13,6 +13,7 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,17 +79,29 @@ export function RegisterPage() {
             <label className="label" htmlFor="password">
               Password
             </label>
-            <input
-              id="password"
-              className="input"
-              type="password"
-              minLength={8}
-              autoComplete="new-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <p className="text-[11px] text-fg-subtle">At least 8 characters.</p>
+            <div className="relative">
+              <input
+                id="password"
+                className="input pr-10"
+                type={showPassword ? "text" : "password"}
+                minLength={8}
+                maxLength={30}
+                autoComplete="new-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-fg-muted hover:text-fg"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-fg-subtle">8–30 characters.</p>
           </div>
           {error && (
             <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

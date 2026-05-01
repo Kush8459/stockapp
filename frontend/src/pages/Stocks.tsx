@@ -33,14 +33,13 @@ import { cn, formatCurrency, formatPercent, toNum } from "@/lib/utils";
  * flashes a short border highlight on the corresponding card so the
  * "this is real-time" affordance is visible without polling animations.
  *
- * Default state has no chip selected — the user can either pick a
- * filter, or just type and search across the entire NSE EQ universe.
+ * Default state lands on Top Gainers so users see live action immediately
+ * instead of an empty grid; they can clear the chip or pick another to
+ * browse a different slice of the universe.
  */
 export function StocksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  // No default — empty string means "no filter", which the catalog
-  // endpoint translates to a universe search (or empty if q is blank).
-  const initialCategory = searchParams.get("category") ?? "";
+  const initialCategory = searchParams.get("category") ?? "movers:gainers";
   const [category, setCategory] = useState<string>(initialCategory);
   const [rawQuery, setRawQuery] = useState("");
   const query = useDebounce(rawQuery, 250);

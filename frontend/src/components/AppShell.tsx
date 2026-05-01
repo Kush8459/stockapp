@@ -117,7 +117,7 @@ export function AppShell() {
                 <X className="h-4 w-4" />
               </button>
             </Dialog.Close>
-            <SidebarContent onWallet={() => setWalletOpen(true)} />
+            <SidebarContent onWallet={() => setWalletOpen(true)} inDrawer />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -129,7 +129,7 @@ export function AppShell() {
 
 // Shared sidebar content — same JSX renders in the desktop aside and the
 // mobile drawer. Connection dot + theme toggle live in the header row.
-function SidebarContent({ onWallet }: { onWallet: () => void }) {
+function SidebarContent({ onWallet, inDrawer = false }: { onWallet: () => void; inDrawer?: boolean }) {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
   const { connected } = useLivePrices();
@@ -140,7 +140,7 @@ function SidebarContent({ onWallet }: { onWallet: () => void }) {
 
   return (
     <>
-      <div className="flex items-center gap-2.5 px-5 pb-5 pt-6">
+      <div className={cn("flex items-center gap-2.5 px-5 pb-5 pt-6", inDrawer && "pr-14")}>
         <div className="relative">
           <Wallet2 className="h-6 w-6 text-brand" />
           <span

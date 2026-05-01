@@ -11,7 +11,6 @@ import {
   Copy,
   Loader2,
   ScrollText,
-  ShieldCheck,
 } from "lucide-react";
 import { useTransactionDetail } from "@/hooks/usePortfolio";
 import { assetHref, cn, formatCurrency, toNum } from "@/lib/utils";
@@ -41,7 +40,7 @@ export function TransactionDetailPage() {
     );
   }
 
-  const { transaction: t, ledgerEntries, auditEntries } = data;
+  const { transaction: t, ledgerEntries } = data;
   const isBuy = t.side === "buy";
   const total = toNum(t.totalAmount);
   const fees = toNum(t.fees);
@@ -73,18 +72,18 @@ export function TransactionDetailPage() {
         transition={{ duration: 0.35 }}
         className="card overflow-hidden"
       >
-        <div className="flex flex-wrap items-start justify-between gap-4 p-6">
-          <div className="flex items-start gap-4">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:p-6">
+          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <span
               className={cn(
-                "flex h-12 w-12 items-center justify-center rounded-xl",
+                "hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:flex sm:h-12 sm:w-12",
                 isBuy ? "bg-success/15 text-success" : "bg-danger/15 text-danger",
               )}
             >
-              {isBuy ? <ArrowDownLeft className="h-6 w-6" /> : <ArrowUpRight className="h-6 w-6" />}
+              {isBuy ? <ArrowDownLeft className="h-5 w-5 sm:h-6 sm:w-6" /> : <ArrowUpRight className="h-5 w-5 sm:h-6 sm:w-6" />}
             </span>
-            <div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-fg-muted">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs uppercase tracking-wider text-fg-muted">
                 <span>{t.assetType}</span>
                 <span
                   className={cn(
@@ -98,7 +97,7 @@ export function TransactionDetailPage() {
                 </span>
                 <SourceChip source={t.source} />
               </div>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+              <h1 className="mt-1 break-words text-lg font-semibold tracking-tight sm:text-2xl">
                 {isBuy ? "Bought" : "Sold"}{" "}
                 <span className="num">{qty.toLocaleString()}</span>{" "}
                 <Link to={assetHref(t.ticker, t.assetType)} className="text-brand hover:underline">
@@ -115,9 +114,9 @@ export function TransactionDetailPage() {
               </p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="border-t border-border/40 pt-4 text-left sm:border-0 sm:pt-0 sm:text-right">
             <div className="label">{isBuy ? "Net debit" : "Net credit"}</div>
-            <div className="num mt-1 text-3xl font-semibold">{formatCurrency(heroAmount)}</div>
+            <div className="num mt-1 text-2xl font-semibold sm:text-3xl">{formatCurrency(heroAmount)}</div>
             <div className="num text-xs text-fg-muted">
               gross {formatCurrency(gross)}
               {hasCharges && (
@@ -217,55 +216,6 @@ export function TransactionDetailPage() {
 
       {/* Ledger */}
       <LedgerCard entries={ledgerEntries} />
-
-      {/* Audit */}
-      <section className="card p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-fg-muted" />
-            <span className="label">Audit trail</span>
-          </div>
-          <span className="num text-xs text-fg-muted">{auditEntries.length} entries</span>
-        </div>
-        {auditEntries.length === 0 ? (
-          <p className="text-sm text-fg-muted">
-            No audit rows linked to this transaction.
-          </p>
-        ) : (
-          <ol className="space-y-3">
-            {auditEntries.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-lg border border-border/60 bg-bg-soft/60 p-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{a.action}</span>
-                  <span className="num text-xs text-fg-muted">
-                    #{a.id} · {new Date(a.createdAt).toLocaleString()}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-fg-muted">
-                  <span>
-                    type: <span className="text-fg">{a.entityType}</span>
-                  </span>
-                  {a.ip && (
-                    <span>
-                      ip: <span className="text-fg">{a.ip}</span>
-                    </span>
-                  )}
-                </div>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-bg px-3 py-2 text-[11px] text-fg-muted">
-                  {JSON.stringify(a.payload, null, 2)}
-                </pre>
-              </li>
-            ))}
-          </ol>
-        )}
-        <p className="mt-3 text-[11px] text-fg-subtle">
-          This row is append-only. Postgres triggers reject any UPDATE or DELETE
-          against the <code className="kbd">audit_log</code> table.
-        </p>
-      </section>
     </div>
   );
 }
@@ -347,6 +297,33 @@ function LedgerCard({ entries }: { entries: LedgerEntry[] }) {
     return { debit, credit, balanced: Math.abs(debit - credit) < 1e-6 };
   }, [entries]);
 
+  // Translate accounting direction → banking direction for display.
+  // Bank statements call money OUT a "debit" and money IN a "credit". The DB
+  // stores accountant double-entry, where DR on an asset (cash, positions)
+  // means the asset went UP — opposite of bank-statement intuition. Invert
+  // for asset accounts so the labels match how a non-accountant reads them.
+  // Fees / realized_pnl don't need inverting (DR fees already = "you paid").
+  const display = useMemo(
+    () =>
+      [...entries]
+        .map((e) => {
+          const isAsset =
+            e.account === "cash" || e.account.startsWith("positions:");
+          const userDirection: "debit" | "credit" = isAsset
+            ? e.direction === "debit"
+              ? "credit"
+              : "debit"
+            : e.direction;
+          return { entry: e, userDirection };
+        })
+        // Banking convention: "debit" (out) listed before "credit" (in).
+        .sort((a, b) => {
+          if (a.userDirection === b.userDirection) return 0;
+          return a.userDirection === "debit" ? -1 : 1;
+        }),
+    [entries],
+  );
+
   return (
     <section className="card p-6">
       <div className="mb-4 flex items-center justify-between">
@@ -368,59 +345,33 @@ function LedgerCard({ entries }: { entries: LedgerEntry[] }) {
       {entries.length === 0 ? (
         <p className="text-sm text-fg-muted">No ledger rows linked to this transaction.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase tracking-wider text-fg-muted">
-              <tr className="border-b border-border/60">
-                <th className="px-3 py-2 text-left font-medium">Account</th>
-                <th className="px-3 py-2 text-left font-medium">Direction</th>
-                <th className="px-3 py-2 text-right font-medium">Amount</th>
-                <th className="px-3 py-2 text-right font-medium">Currency</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className="border-b border-border/40 last:border-0">
-                  <td className="px-3 py-2 font-medium">{e.account}</td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={cn(
-                        "rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize",
-                        e.direction === "debit"
-                          ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
-                          : "border-violet-500/30 bg-violet-500/10 text-violet-300",
-                      )}
-                    >
-                      {e.direction}
-                    </span>
-                  </td>
-                  <td className="num px-3 py-2 text-right">
-                    {formatCurrency(toNum(e.amount))}
-                  </td>
-                  <td className="num px-3 py-2 text-right text-fg-muted">{e.currency}</td>
-                </tr>
-              ))}
-              <tr className="border-t border-border/60 bg-bg-soft/40">
-                <td className="px-3 py-2 font-medium text-fg-muted" colSpan={2}>
-                  Totals
-                </td>
-                <td className="num px-3 py-2 text-right">
-                  <div className="flex flex-col items-end gap-0.5">
-                    <span>
-                      <span className="text-fg-muted">D </span>
-                      {formatCurrency(sums.debit)}
-                    </span>
-                    <span>
-                      <span className="text-fg-muted">C </span>
-                      {formatCurrency(sums.credit)}
-                    </span>
-                  </div>
-                </td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <ul className="divide-y divide-border/40">
+          {display.map(({ entry: e, userDirection }) => (
+            <li
+              key={e.id}
+              className="flex items-center justify-between gap-3 py-2.5"
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize",
+                    userDirection === "debit"
+                      ? "border-danger/30 bg-danger/10 text-danger"
+                      : "border-success/30 bg-success/10 text-success",
+                  )}
+                >
+                  {userDirection}
+                </span>
+                <span className="num truncate text-sm font-medium">
+                  {e.account}
+                </span>
+              </div>
+              <span className="num shrink-0 text-sm font-medium">
+                {formatCurrency(toNum(e.amount))}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
       <p className="mt-3 text-[11px] text-fg-subtle">
         Every transaction writes at least two rows here — a debit into one

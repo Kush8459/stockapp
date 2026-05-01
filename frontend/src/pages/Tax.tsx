@@ -206,33 +206,36 @@ function BucketCard({
       animate={{ opacity: 1, y: 0 }}
       className="card flex flex-col p-4"
     >
-      <div className={cn("inline-flex items-center gap-1.5 self-start rounded-full border px-2 py-0.5 text-[11px] font-medium", toneCls)}>
-        {icon}
-        {title}
-      </div>
-      <div className="num mt-3 text-[11px] text-fg-muted">Rate · {rate}</div>
-
-      <div className="mt-3">
-        <div className="label">Realized gain</div>
-        <div
-          className={cn(
-            "num mt-0.5 text-xl font-semibold",
-            gainN >= 0 ? "pos" : "neg",
-          )}
-        >
-          {formatCurrency(gainN)}
+      <div className="flex items-center justify-between gap-3">
+        <div className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium", toneCls)}>
+          {icon}
+          {title}
         </div>
+        <div className="num text-[11px] text-fg-muted">Rate · {rate}</div>
       </div>
 
-      <div className="mt-3">
-        <div className="label">Tax owed</div>
-        <div
-          className={cn(
-            "num mt-0.5 text-xl font-semibold",
-            taxN > 0 ? "text-warn" : "text-fg-muted",
-          )}
-        >
-          {formatCurrency(taxN)}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div>
+          <div className="label">Realized gain</div>
+          <div
+            className={cn(
+              "num mt-0.5 text-xl font-semibold",
+              gainN >= 0 ? "pos" : "neg",
+            )}
+          >
+            {formatCurrency(gainN)}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="label">Tax owed</div>
+          <div
+            className={cn(
+              "num mt-0.5 text-xl font-semibold",
+              taxN > 0 ? "text-warn" : "text-fg-muted",
+            )}
+          >
+            {formatCurrency(taxN)}
+          </div>
         </div>
       </div>
 
@@ -321,8 +324,8 @@ function RealizationsTable({ fy, items }: { fy: string; items: Realization[] }) 
 
   return (
     <section className="card overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div className="min-w-0">
           <div className="label">Realizations</div>
           <div className="text-xs text-fg-muted">
             {items.length} sell{items.length === 1 ? "" : "s"} in {fy} · FIFO-matched
@@ -332,12 +335,21 @@ function RealizationsTable({ fy, items }: { fy: string; items: Realization[] }) 
           type="button"
           onClick={exportCsv}
           disabled={items.length === 0}
-          className="btn-outline h-8 px-3 text-xs"
+          className="btn-outline h-8 shrink-0 whitespace-nowrap px-3 text-xs"
         >
           <Download className="h-3.5 w-3.5" /> Export CSV
         </button>
       </div>
-      <div className="overflow-x-auto">
+      {/* Mobile: stacked card list. The 8-column table forces horizontal
+          scroll on phones; cards surface the same fields stacked instead. */}
+      <ul className="divide-y divide-border/40 md:hidden">
+        {items.map((r, i) => (
+          <RealizationCardMobile key={i} r={r} />
+        ))}
+      </ul>
+
+      {/* Desktop: full 8-column table. */}
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-[14%] min-w-[120px]" />
@@ -369,6 +381,62 @@ function RealizationsTable({ fy, items }: { fy: string; items: Realization[] }) 
         </table>
       </div>
     </section>
+  );
+}
+
+function RealizationCardMobile({ r }: { r: Realization }) {
+  const gain = toNum(r.gain);
+  const qty = toNum(r.quantity);
+  const termTone =
+    r.term === "long"
+      ? "border-success/30 bg-success/10 text-success"
+      : "border-warn/30 bg-warn/10 text-warn";
+  return (
+    <li className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="num truncate text-sm font-medium">{r.ticker}</span>
+            <span className="text-[10px] uppercase text-fg-muted">{r.assetType}</span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize",
+                termTone,
+              )}
+            >
+              {r.term === "long" ? (
+                <TrendingUp className="h-2.5 w-2.5" />
+              ) : (
+                <TrendingDown className="h-2.5 w-2.5" />
+              )}
+              {r.term}
+            </span>
+          </div>
+          <div className="num mt-1 text-[11px] text-fg-muted">
+            Sold {formatDate(r.sellDate)} · held {r.holdingDays}d ·{" "}
+            {qty.toLocaleString(undefined, { maximumFractionDigits: 8 })} unit
+            {qty === 1 ? "" : "s"}
+          </div>
+          <div className="num mt-0.5 text-[11px] text-fg-muted">
+            {formatCurrency(toNum(r.buyPrice))} → {formatCurrency(toNum(r.sellPrice))}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={cn("num text-sm font-semibold", gain >= 0 ? "pos" : "neg")}>
+            {gain >= 0 ? "+" : ""}
+            {formatCurrency(gain)}
+          </div>
+        </div>
+      </div>
+      <span
+        className={cn(
+          "mt-2 inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium",
+          categoryTone(r.category),
+        )}
+      >
+        {categoryLabel(r.category)}
+      </span>
+    </li>
   );
 }
 

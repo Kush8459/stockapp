@@ -32,7 +32,7 @@ export function AlertsPage() {
         </button>
       </header>
 
-      <section className="grid grid-cols-3 gap-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Metric label="Active" value={active.length} tone="brand" />
         <Metric label="Triggered today" value={fired.length} tone="success" />
         <Metric label="Total" value={data.length} />
@@ -46,7 +46,7 @@ export function AlertsPage() {
         {isLoading ? (
           <div className="py-10 text-center text-sm text-fg-muted">Loading…</div>
         ) : active.length === 0 ? (
-          <EmptyState onCreate={() => setShowForm(true)} />
+          <EmptyState />
         ) : (
           <ul className="divide-y divide-border/40">
             {active.map((a, i) => (
@@ -182,14 +182,11 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: "
   );
 }
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState() {
   return (
     <div className="px-6 py-12 text-center">
       <Bell className="mx-auto h-8 w-8 text-fg-subtle" />
       <p className="mt-3 text-sm text-fg-muted">No active alerts yet.</p>
-      <button className="btn-outline mt-4 text-xs" onClick={onCreate}>
-        Create your first alert
-      </button>
     </div>
   );
 }
