@@ -95,3 +95,35 @@ jobs:
           tags: stockapp-frontend:ci
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
+
+  # Deploy the Go API + price worker to Fly.io on every main merge once
+  # build/test/vet have all passed. Frontend is on Vercel and auto-deploys
+  # from GitHub directly, so it has no job here. The two Fly apps share a
+  # Dockerfile but use different TARGET build args, so we deploy them in
+  # parallel rather than sequentially.
+  deploy-fly:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: stockapp-api
+            config: fly.api.toml
+          - app: stockapp-worker
+            config: fly.worker.toml
+    concurrency:
+      # Serialise per-app deploys so two pushes in quick succession don't
+      # stomp on each other (Fly will reject overlapping deploys anyway).
+      group: fly-deploy-${{ matrix.app }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy ${{ matrix.app }}
+        working-directory: backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --config ${{ matrix.config }} --app ${{ matrix.app }} --remote-only
