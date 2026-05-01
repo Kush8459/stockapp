@@ -125,5 +125,7 @@ jobs:
       - name: Deploy ${{ matrix.app }}
         working-directory: backend
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # Per-app deploy tokens scope each runner to exactly one app, so
+          # a leaked token can't deploy the other.
+          FLY_API_TOKEN: ${{ matrix.app == 'stockapp-api' && secrets.FLY_API_TOKEN_SERVER || secrets.FLY_API_TOKEN_WORKER }}
         run: flyctl deploy --config ${{ matrix.config }} --app ${{ matrix.app }} --remote-only
