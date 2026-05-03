@@ -134,7 +134,8 @@ func RunYahooFeed(ctx context.Context, cache *Cache, tickers []string, poll time
 	client := newHTTPClient()
 	log.Info().Int("tickers", len(tickers)).Dur("poll", poll).Msg("yahoo feed starting")
 
-	// Fire once immediately; then on a ticker.
+	// Fire once immediately so cold-start dashboards have data even outside
+	// market hours; then loop, gated on IsMarketActive.
 	fetchAll(ctx, client, cache, tickers)
 
 	t := time.NewTicker(poll)
@@ -144,6 +145,13 @@ func RunYahooFeed(ctx context.Context, cache *Cache, tickers []string, poll time
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			if !IsMarketActive() {
+				// Skip the fetch entirely when markets are closed. Saves
+				// ~70 % of Redis writes (~17 hr/day idle on weekdays + all
+				// weekend). The cache TTL keeps prior ticks alive 24 h so
+				// dashboards stay populated through the gap.
+				continue
+			}
 			fetchAll(ctx, client, cache, tickers)
 		}
 	}

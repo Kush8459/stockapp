@@ -167,6 +167,12 @@ func RunUpstoxFeed(
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			if !IsMarketActive() {
+				// Skip Upstox REST polls outside market hours. The 5 s poll
+				// cadence here would otherwise burn ~17 280 writes/day per
+				// ticker overnight even on a flat market.
+				continue
+			}
 			if err := upstoxFetch(ctx, client, cache, token, keys, keyToTicker); err != nil {
 				log.Warn().Err(err).Msg("upstox fetch failed")
 			}
